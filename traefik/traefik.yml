@@ -1,0 +1,78 @@
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    filename: /etc/traefik/traefik.yml
+
+http:
+  routers:
+    ws:
+      rule: "PathPrefix(`/ws`) || PathPrefix(`/internal`)"
+      service: ws
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - secure-headers
+        - cors
+        - rate-limit
+        - ip-allowlist
+    api:
+      rule: "PathPrefix(`/api`)"
+      service: api
+      entryPoints:
+        - web
+        - websecure
+      middlewares:
+        - secure-headers
+        - cors
+        - rate-limit
+        - ip-allowlist
+  services:
+    ws:
+      loadBalancer:
+        servers:
+          - url: "http://gateway:8000"
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://symfony:8000"
+  middlewares:
+    secure-headers:
+      headers:
+        browserXssFilter: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: "no-referrer"
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+    cors:
+      headers:
+        accessControlAllowMethods:
+          - "GET"
+          - "POST"
+          - "OPTIONS"
+        accessControlAllowHeaders:
+          - "Authorization"
+          - "Content-Type"
+          - "X-Demo-Key"
+        accessControlAllowOriginList:
+          - "http://localhost:8180"
+          - "http://localhost:8443"
+        accessControlAllowCredentials: true
+    rate-limit:
+      rateLimit:
+        average: 50
+        burst: 100
+    ip-allowlist:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"

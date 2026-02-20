@@ -1,0 +1,34 @@
+services:
+  redis:
+    image: redis:7-alpine
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "8167:15672"
+
+  gateway:
+    environment:
+      - REDIS_DSN=redis://redis:6379
+      - REDIS_STREAM=ws.outbox
+      - RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - RABBITMQ_EXCHANGE=ws.outbox
+      - RABBITMQ_ROUTING_KEY=ws.outbox
+      - RABBITMQ_QUEUE=ws.outbox
+      - RABBITMQ_DLQ_EXCHANGE=ws.dlq
+      - RABBITMQ_DLQ_QUEUE=ws.dlq
+
+  symfony:
+    environment:
+      - WS_REDIS_DSN=redis://redis:6379
+      - WS_REDIS_STREAM=ws.outbox
+      - WS_REDIS_EVENTS_STREAM=ws.events
+      - "WS_REDIS_PREFIX=presence:"
+      - WS_RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - WS_RABBITMQ_EXCHANGE=ws.outbox
+      - WS_RABBITMQ_QUEUE=ws.outbox
+      - WS_RABBITMQ_ROUTING_KEY=ws.outbox
+      - WS_RABBITMQ_EVENTS_EXCHANGE=ws.events
+      - WS_RABBITMQ_EVENTS_QUEUE=ws.events
+      - WS_RABBITMQ_EVENTS_ROUTING_KEY=ws.events

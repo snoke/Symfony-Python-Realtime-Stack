@@ -1,0 +1,77 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    command:
+      - --providers.file.filename=/etc/traefik/traefik.prod.yml
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+    environment:
+      - TRAEFIK_HOST=${TRAEFIK_HOST}
+      - TRAEFIK_ACME_EMAIL=${TRAEFIK_ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik/traefik.prod.yml:/etc/traefik/traefik.prod.yml:ro
+      - ./traefik/acme.json:/etc/traefik/acme.json
+
+  gateway:
+    build: ./gateway
+    restart: unless-stopped
+    environment:
+      - WS_MODE=${WS_MODE:-terminator}
+      - EVENTS_MODE=${EVENTS_MODE:-}
+      - JWT_ALG=RS256
+      - JWT_USER_ID_CLAIM=user_id
+      - JWT_PUBLIC_KEY=
+      - JWT_JWKS_URL=
+      - JWT_ISSUER=${JWT_ISSUER}
+      - JWT_AUDIENCE=${JWT_AUDIENCE}
+      - JWT_LEEWAY=${JWT_LEEWAY:-0}
+      - SYMFONY_WEBHOOK_URL=${SYMFONY_WEBHOOK_URL:-}
+      - SYMFONY_WEBHOOK_SECRET=${SYMFONY_WEBHOOK_SECRET:-}
+      - WEBHOOK_RETRY_ATTEMPTS=${WEBHOOK_RETRY_ATTEMPTS:-3}
+      - WEBHOOK_RETRY_BASE_SECONDS=${WEBHOOK_RETRY_BASE_SECONDS:-0.5}
+      - WEBHOOK_TIMEOUT_SECONDS=${WEBHOOK_TIMEOUT_SECONDS:-5}
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY}
+      - LOG_FORMAT=json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  symfony:
+    build:
+      context: .
+      dockerfile: symfony/Dockerfile
+    restart: unless-stopped
+    environment:
+      - APP_ENV=prod
+      - WS_MODE=${WS_MODE:-terminator}
+      - WS_GATEWAY_BASE_URL=${WS_GATEWAY_BASE_URL:-}
+      - WS_GATEWAY_API_KEY=${WS_GATEWAY_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "php", "-r", "file_get_contents('http://localhost:8000/api/ping');"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ["brokers"]
+    volumes:
+      - redis-data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    profiles: ["brokers"]
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+volumes:
+  redis-data:
+  rabbitmq-data:
