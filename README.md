@@ -31,6 +31,14 @@ This uses RS256 for local dev.
 
 You should see `received: {"type":"pong"}`.
 
+## Publisher demo (end-to-end)
+1. Start the WS client in one terminal:
+   - `JWT_PRIVATE_KEY_FILE=./scripts/keys/dev_private.pem WS_URL=ws://localhost:8180/ws python scripts/ws_client.py`
+2. Trigger a push from Symfony in another terminal:
+   - `./scripts/push_demo.sh`
+
+You should see a JSON `event` on the WS client.
+
 ## Notes
 - This is a scaffold. For production, add Redis/RabbitMQ, persistence, and rate limits.
 - For production, configure RS256 (JWKS or public key) in `gateway`.

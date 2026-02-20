@@ -32,8 +32,9 @@ async def main() -> None:
     headers = {"Authorization": f"Bearer {token}"}
     async with websockets.connect(WS_URL, extra_headers=headers) as ws:
         await ws.send(json.dumps({"type": "ping"}))
-        msg = await ws.recv()
-        print("received:", msg)
+        while True:
+            msg = await ws.recv()
+            print("received:", msg)
 
 
 if __name__ == "__main__":
