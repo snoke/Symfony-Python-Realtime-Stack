@@ -1,3 +1,13 @@
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    filename: /etc/traefik/traefik.yml
+
 http:
   routers:
     ws:
@@ -11,7 +21,6 @@ http:
         - cors
         - rate-limit
         - ip-allowlist
-      tls: {}
     api:
       rule: "PathPrefix(`/api`) || PathPrefix(`/internal/ws`)"
       service: api
@@ -23,7 +32,6 @@ http:
         - cors
         - rate-limit
         - ip-allowlist
-      tls: {}
   services:
     ws:
       loadBalancer:
