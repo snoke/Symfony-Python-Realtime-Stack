@@ -5,6 +5,8 @@ import time
 import uuid
 import hashlib
 import hmac
+import logging
+import sys
 from typing import Any, Dict, List, Optional, Set
 
 import aio_pika
@@ -12,7 +14,7 @@ import httpx
 import jwt
 import redis.asyncio as redis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from jwt import PyJWKClient
 from aio_pika import ExchangeType
 
@@ -42,6 +44,28 @@ WEBHOOK_RETRY_ATTEMPTS = int(os.getenv("WEBHOOK_RETRY_ATTEMPTS", "3"))
 WEBHOOK_RETRY_BASE_SECONDS = float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "0.5"))
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
+LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
+
+logger = logging.getLogger("gateway")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+logger.addHandler(handler)
+
+metrics: Dict[str, int] = {
+    "ws_connections_total": 0,
+    "ws_disconnects_total": 0,
+    "ws_messages_total": 0,
+    "ws_rate_limited_total": 0,
+    "webhook_fail_total": 0,
+    "publish_total": 0,
+}
+
+def _log(event: str, **fields: Any) -> None:
+    payload = {"event": event, **fields}
+    if LOG_FORMAT == "json":
+        logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+    else:
+        logger.info("%s %s", event, payload)
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: str, subjects: List[str]):
@@ -113,6 +137,8 @@ async def _post_webhook(event_type: str, conn: Connection, extra: Optional[Dict[
                 return
             except Exception:
                 await asyncio.sleep(WEBHOOK_RETRY_BASE_SECONDS * (2 ** attempt))
+    metrics["webhook_fail_total"] += 1
+    _log("webhook_failed", type=event_type, connection_id=conn.id, user_id=conn.user_id)
 
 async def _push_redis_dlq(client: redis.Redis, reason: str, raw: str) -> None:
     try:
@@ -236,6 +262,8 @@ async def ws_endpoint(websocket: WebSocket):
     for s in conn.subjects:
         subjects_index.setdefault(s, set()).add(conn.id)
 
+    metrics["ws_connections_total"] += 1
+    _log("ws_connected", connection_id=conn.id, user_id=conn.user_id, subjects=list(conn.subjects))
     asyncio.create_task(_post_webhook("connected", conn))
 
     try:
@@ -250,7 +278,10 @@ async def ws_endpoint(websocket: WebSocket):
                 continue
             if not conn.allow_message():
                 await websocket.send_json({"type": "rate_limited"})
+                metrics["ws_rate_limited_total"] += 1
+                _log("ws_rate_limited", connection_id=conn.id, user_id=conn.user_id)
                 continue
+            metrics["ws_messages_total"] += 1
             asyncio.create_task(_post_webhook(
                 "message_received",
                 conn,
@@ -259,6 +290,8 @@ async def ws_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        metrics["ws_disconnects_total"] += 1
+        _log("ws_disconnected", connection_id=conn.id, user_id=conn.user_id)
         connections.pop(conn.id, None)
         for s in list(conn.subjects):
             ids = subjects_index.get(s)
@@ -277,7 +310,15 @@ async def publish(payload: Dict[str, Any]):
     subjects = payload.get("subjects", [])
     message = payload.get("payload")
     sent = await _send_to_subjects(subjects, message)
+    metrics["publish_total"] += 1
     return JSONResponse({"sent": sent})
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    lines = []
+    for key, value in metrics.items():
+        lines.append(f"{key} {value}")
+    return PlainTextResponse("\n".join(lines) + "\n")
 
 @app.get("/internal/connections")
 async def list_connections(subject: Optional[str] = None, user_id: Optional[str] = None):

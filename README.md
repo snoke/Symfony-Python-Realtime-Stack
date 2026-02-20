@@ -89,6 +89,10 @@ Environment variables:
 - `RABBITMQ_EXCHANGE` (default `ws.outbox`)
 - `RABBITMQ_ROUTING_KEY` (default `ws.outbox`)
 - `RABBITMQ_DLQ_EXCHANGE` (default `ws.dlq`)
+- `LOG_FORMAT` (default `json`)
+
+Gateway metrics:
+- `GET /metrics` (Prometheus-style text)
 
 ## Security controls
 Gateway JWT validation:
