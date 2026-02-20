@@ -3,8 +3,10 @@
 namespace App\Controller;
 
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 use Vserver\WsBundle\Service\WebsocketPublisher;
+use Vserver\WsBundle\Contract\PresenceProviderInterface;
 
 class DemoController
 {
@@ -19,5 +21,17 @@ class DemoController
     {
         $publisher->send(["user:".$userId], ['hello' => 'world']);
         return new JsonResponse(['sent' => true]);
+    }
+
+    #[Route('/api/online', name: 'api_online', methods: ['GET'])]
+    public function online(Request $request, PresenceProviderInterface $presence): JsonResponse
+    {
+        $userId = $request->query->get('user_id');
+        if (is_string($userId) && $userId !== '') {
+            $result = $presence->listConnectionsForUser($userId);
+        } else {
+            $result = $presence->listConnections();
+        }
+        return new JsonResponse($result);
     }
 }

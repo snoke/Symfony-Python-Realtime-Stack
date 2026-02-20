@@ -39,6 +39,12 @@ You should see `received: {"type":"pong"}`.
 
 You should see a JSON `event` on the WS client.
 
+## Presence demo
+- List all connections:
+  - `curl -sS http://localhost:8180/api/online`
+- List connections for a user:
+  - `curl -sS "http://localhost:8180/api/online?user_id=42"`
+
 ## Notes
 - This is a scaffold. For production, add Redis/RabbitMQ, persistence, and rate limits.
 - For production, configure RS256 (JWKS or public key) in `gateway`.
