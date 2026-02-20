@@ -1,5 +1,5 @@
 {
-  "name": "vserver/ws-symfony-app",
+  "name": "snoke/ws-symfony-app",
   "type": "project",
   "require": {
     "php": ">=8.4",

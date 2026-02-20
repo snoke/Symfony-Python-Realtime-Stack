@@ -13,51 +13,51 @@ class SnokeWsExtension extends Extension
         $configuration = new Configuration();
         $config = $this->processConfiguration($configuration, $configs);
 
-        $container->setParameter('vserver_ws.transport', $config['transport']);
-        $container->setParameter('vserver_ws.presence', $config['presence']);
-        $container->setParameter('vserver_ws.events', $config['events']);
-        $container->setParameter('vserver_ws.subjects', $config['subjects']);
+        $container->setParameter('snoke_ws.transport', $config['transport']);
+        $container->setParameter('snoke_ws.presence', $config['presence']);
+        $container->setParameter('snoke_ws.events', $config['events']);
+        $container->setParameter('snoke_ws.subjects', $config['subjects']);
 
         $transportType = $config['transport']['type'] ?? 'http';
         if ($transportType === 'http') {
-            $container->register('vserver_ws.http_publisher', 'Vserver\\WsBundle\\Service\\HttpPublisher')
+            $container->register('snoke_ws.http_publisher', 'Snoke\\WsBundle\\Service\\HttpPublisher')
                 ->addArgument(new Reference('http_client'))
-                ->addArgument('%vserver_ws.transport%');
-            $publisherService = 'vserver_ws.http_publisher';
+                ->addArgument('%snoke_ws.transport%');
+            $publisherService = 'snoke_ws.http_publisher';
         } elseif ($transportType === 'redis_stream') {
-            $container->register('vserver_ws.redis_stream_publisher', 'Vserver\\WsBundle\\Service\\RedisStreamPublisher')
-                ->addArgument('%vserver_ws.transport%');
-            $publisherService = 'vserver_ws.redis_stream_publisher';
+            $container->register('snoke_ws.redis_stream_publisher', 'Snoke\\WsBundle\\Service\\RedisStreamPublisher')
+                ->addArgument('%snoke_ws.transport%');
+            $publisherService = 'snoke_ws.redis_stream_publisher';
         } else {
-            $container->register('vserver_ws.rabbitmq_publisher', 'Vserver\\WsBundle\\Service\\RabbitMqPublisher')
-                ->addArgument('%vserver_ws.transport%');
-            $publisherService = 'vserver_ws.rabbitmq_publisher';
+            $container->register('snoke_ws.rabbitmq_publisher', 'Snoke\\WsBundle\\Service\\RabbitMqPublisher')
+                ->addArgument('%snoke_ws.transport%');
+            $publisherService = 'snoke_ws.rabbitmq_publisher';
         }
 
         $presenceType = $config['presence']['type'] ?? 'http';
         if ($presenceType === 'http') {
-            $container->register('vserver_ws.http_presence', 'Vserver\\WsBundle\\Service\\HttpPresenceProvider')
+            $container->register('snoke_ws.http_presence', 'Snoke\\WsBundle\\Service\\HttpPresenceProvider')
                 ->addArgument(new Reference('http_client'))
-                ->addArgument('%vserver_ws.presence%');
-            $presenceService = 'vserver_ws.http_presence';
+                ->addArgument('%snoke_ws.presence%');
+            $presenceService = 'snoke_ws.http_presence';
         } else {
-            $container->register('vserver_ws.redis_presence', 'Vserver\\WsBundle\\Service\\RedisPresenceProvider')
-                ->addArgument('%vserver_ws.presence%');
-            $presenceService = 'vserver_ws.redis_presence';
+            $container->register('snoke_ws.redis_presence', 'Snoke\\WsBundle\\Service\\RedisPresenceProvider')
+                ->addArgument('%snoke_ws.presence%');
+            $presenceService = 'snoke_ws.redis_presence';
         }
 
-        $container->register('vserver_ws.subject_key_resolver', 'Vserver\\WsBundle\\Service\\SimpleSubjectKeyResolver')
-            ->addArgument('%vserver_ws.subjects%');
+        $container->register('snoke_ws.subject_key_resolver', 'Snoke\\WsBundle\\Service\\SimpleSubjectKeyResolver')
+            ->addArgument('%snoke_ws.subjects%');
 
-        $container->register('vserver_ws.publisher', 'Vserver\\WsBundle\\Service\\WebsocketPublisher')
+        $container->register('snoke_ws.publisher', 'Snoke\\WsBundle\\Service\\WebsocketPublisher')
             ->addArgument(new Reference($publisherService))
-            ->addArgument(new Reference('vserver_ws.subject_key_resolver'));
+            ->addArgument(new Reference('snoke_ws.subject_key_resolver'));
 
-        $container->setAlias('Vserver\\WsBundle\\Contract\\PresenceProviderInterface', $presenceService);
+        $container->setAlias('Snoke\\WsBundle\\Contract\\PresenceProviderInterface', $presenceService);
 
-        $container->register('vserver_ws.webhook_controller', 'Vserver\\WsBundle\\Controller\\WebhookController')
+        $container->register('snoke_ws.webhook_controller', 'Snoke\\WsBundle\\Controller\\WebhookController')
             ->addArgument(new Reference('event_dispatcher'))
-            ->addArgument('%vserver_ws.events%')
+            ->addArgument('%snoke_ws.events%')
             ->addTag('controller.service_arguments');
     }
 }

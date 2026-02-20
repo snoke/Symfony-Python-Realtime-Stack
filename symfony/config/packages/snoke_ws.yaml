@@ -1,4 +1,4 @@
-vserver_ws:
+snoke_ws:
   transport:
     type: '%env(default:WS_TRANSPORT_TYPE:http)%'
     http:

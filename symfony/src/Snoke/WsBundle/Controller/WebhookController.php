@@ -16,7 +16,7 @@ class WebhookController
         private array $config
     ) {}
 
-    #[Route('/internal/ws/events', name: 'vserver_ws_events', methods: ['POST'])]
+    #[Route('/internal/ws/events', name: 'snoke_ws_events', methods: ['POST'])]
     public function handle(Request $request): JsonResponse
     {
         $events = $this->config['events'];

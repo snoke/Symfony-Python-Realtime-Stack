@@ -2,6 +2,6 @@ controllers:
   resource: ../src/Controller/
   type: attribute
 
-vserver_ws:
+snoke_ws:
   resource: ../src/Snoke/WsBundle/Controller/
   type: attribute

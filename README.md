@@ -64,7 +64,7 @@ Snoke\\WsBundle\\SnokeWsBundle::class => ['all' => true],
 ```
 4. Add config (example):
 ```
-vserver_ws:
+snoke_ws:
   transport:
     type: http
     http:
@@ -92,7 +92,7 @@ Supported types are declared and now implemented for transport/presence:
 ### Redis transport (publisher)
 Symfony config:
 ```
-vserver_ws:
+snoke_ws:
   transport:
     type: redis_stream
     redis_stream:
@@ -108,7 +108,7 @@ REDIS_STREAM=ws.outbox
 ### RabbitMQ transport (publisher)
 Symfony config:
 ```
-vserver_ws:
+snoke_ws:
   transport:
     type: rabbitmq
     rabbitmq:
@@ -126,7 +126,7 @@ RABBITMQ_QUEUE=ws.outbox
 ### Redis presence
 Symfony config:
 ```
-vserver_ws:
+snoke_ws:
   presence:
     type: redis
     redis:
