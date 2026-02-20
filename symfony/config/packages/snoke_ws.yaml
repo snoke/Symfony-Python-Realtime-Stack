@@ -1,6 +1,6 @@
 snoke_ws:
   transport:
-    type: '%env(default:WS_TRANSPORT_TYPE:http)%'
+    type: '%env(default:http:WS_TRANSPORT_TYPE)%'
     http:
       base_url: '%env(WS_GATEWAY_BASE_URL)%'
       publish_path: '/internal/publish'
@@ -10,25 +10,25 @@ snoke_ws:
         header: 'X-Api-Key'
         value: '%env(WS_GATEWAY_API_KEY)%'
     redis_stream:
-      dsn: '%env(default:WS_REDIS_DSN:redis://redis:6379)%'
-      stream: '%env(default:WS_REDIS_STREAM:ws.outbox)%'
+      dsn: '%env(WS_REDIS_DSN)%'
+      stream: '%env(WS_REDIS_STREAM)%'
     rabbitmq:
-      dsn: '%env(default:WS_RABBITMQ_DSN:amqp://guest:guest@rabbitmq:5672/)%'
-      exchange: '%env(default:WS_RABBITMQ_EXCHANGE:ws.outbox)%'
-      queue: '%env(default:WS_RABBITMQ_QUEUE:ws.outbox)%'
-      routing_key: '%env(default:WS_RABBITMQ_ROUTING_KEY:ws.outbox)%'
+      dsn: '%env(WS_RABBITMQ_DSN)%'
+      exchange: '%env(WS_RABBITMQ_EXCHANGE)%'
+      queue: '%env(WS_RABBITMQ_QUEUE)%'
+      routing_key: '%env(WS_RABBITMQ_ROUTING_KEY)%'
   presence:
-    type: '%env(default:WS_PRESENCE_TYPE:http)%'
+    type: '%env(default:http:WS_PRESENCE_TYPE)%'
     http:
       base_url: '%env(WS_GATEWAY_BASE_URL)%'
       list_path: '/internal/connections'
       by_user_path: '/internal/users/{user_id}/connections'
       timeout_seconds: 5
     redis:
-      dsn: '%env(default:WS_REDIS_DSN:redis://redis:6379)%'
-      prefix: '%env(default:WS_REDIS_PREFIX:presence:)%'
+      dsn: '%env(WS_REDIS_DSN)%'
+      prefix: '%env(WS_REDIS_PREFIX)%'
   events:
-    type: '%env(default:WS_EVENTS_TYPE:webhook)%'
+    type: '%env(default:webhook:WS_EVENTS_TYPE)%'
     webhook:
       path: '/internal/ws/events'
       enabled: true

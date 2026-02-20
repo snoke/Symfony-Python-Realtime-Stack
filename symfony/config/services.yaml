@@ -3,8 +3,9 @@ services:
     autowire: true
     autoconfigure: true
 
-  App\\:
-    resource: '../src/'
+  "App\\":
+    resource: "../src/"
+    exclude: "../src/Snoke/"
 
-  Snoke\\WsBundle\\:
-    resource: '../src/Snoke/WsBundle/'
+  "Snoke\\WsBundle\\":
+    resource: "../src/Snoke/WsBundle/"
