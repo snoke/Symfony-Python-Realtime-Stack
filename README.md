@@ -21,6 +21,7 @@ Default behavior:
 2. Open:
    - WebSocket: `ws://localhost:8180/ws`
    - Symfony: `http://localhost:8180/api/ping`
+   - HTTPS (self-signed): `https://localhost:8443/api/ping`
 
 ## Minimal WS test client
 This uses RS256 for local dev.
@@ -144,6 +145,7 @@ snoke_ws:
 ## Notes
 - This is a scaffold. For production, add Redis/RabbitMQ, persistence, and rate limits.
 - For production, configure RS256 (JWKS or public key) in `gateway`.
+- Traefik dev config enables basic rate limiting, CORS, and a local IP allowlist.
 
 ## Bundle config (skeleton)
 Supported types are declared and now implemented for transport/presence:

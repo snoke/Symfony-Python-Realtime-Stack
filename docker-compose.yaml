@@ -4,8 +4,10 @@ services:
     command:
       - --providers.file.filename=/etc/traefik/traefik.yml
       - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
     ports:
       - "8180:80"
+      - "8443:443"
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
 
