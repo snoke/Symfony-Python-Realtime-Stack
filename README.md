@@ -110,6 +110,9 @@ Local default is `dev-demo-key` from `docker-compose.local.yaml`.
 ### Demo logs
 - On connect/disconnect, Symfony logs `ws.connected` / `ws.disconnected`.
 
+### Demo inbox (optional Redis)
+Set `DEMO_INBOX_REDIS_DSN` (e.g. `redis://redis:6379`) to store the last message in Redis.
+
 ## Presence demo
 - List all connections:
   - `curl -sS http://localhost:8180/api/online`
