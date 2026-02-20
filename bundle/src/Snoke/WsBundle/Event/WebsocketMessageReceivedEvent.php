@@ -2,35 +2,17 @@
 
 namespace Snoke\WsBundle\Event;
 
-class WebsocketMessageReceivedEvent
+class WebsocketMessageReceivedEvent extends WebsocketEvent
 {
     public function __construct(
-        private string $connectionId,
-        private string $userId,
-        private array $subjects,
-        private int $connectedAt,
+        string $connectionId,
+        string $userId,
+        array $subjects,
+        int $connectedAt,
         private mixed $message,
         private string $raw
-    ) {}
-
-    public function getConnectionId(): string
-    {
-        return $this->connectionId;
-    }
-
-    public function getUserId(): string
-    {
-        return $this->userId;
-    }
-
-    public function getSubjects(): array
-    {
-        return $this->subjects;
-    }
-
-    public function getConnectedAt(): int
-    {
-        return $this->connectedAt;
+    ) {
+        parent::__construct($connectionId, $userId, $subjects, $connectedAt);
     }
 
     public function getMessage(): mixed
