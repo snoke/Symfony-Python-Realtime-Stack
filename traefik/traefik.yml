@@ -23,7 +23,7 @@ http:
         - ip-allowlist
       tls: {}
     api:
-      rule: "PathPrefix(`/api`) || PathPrefix(`/internal/ws`)"
+      rule: "PathPrefix(`/api`)"
       service: api
       entryPoints:
         - web

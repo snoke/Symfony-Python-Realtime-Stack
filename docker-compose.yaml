@@ -18,7 +18,6 @@ services:
       - JWT_USER_ID_CLAIM=user_id
       - JWT_PUBLIC_KEY=
       - JWT_JWKS_URL=
-      - SYMFONY_WEBHOOK_URL=http://symfony:8000/internal/ws/events
       - GATEWAY_API_KEY=dev-key
     labels:
       - traefik.http.routers.ws.rule=PathPrefix(`/ws`) || PathPrefix(`/internal`)
@@ -29,9 +28,7 @@ services:
     build: ./symfony
     environment:
       - APP_ENV=dev
-      - WS_GATEWAY_BASE_URL=http://gateway:8000
-      - WS_GATEWAY_API_KEY=dev-key
     labels:
-      - traefik.http.routers.api.rule=PathPrefix(`/api`) || PathPrefix(`/internal/ws`)
+      - traefik.http.routers.api.rule=PathPrefix(`/api`)
       - traefik.http.routers.api.entrypoints=web
       - traefik.http.services.api.loadbalancer.server.port=8000

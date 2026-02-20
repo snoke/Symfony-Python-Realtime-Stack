@@ -27,8 +27,6 @@ services:
       - JWT_ISSUER=${JWT_ISSUER}
       - JWT_AUDIENCE=${JWT_AUDIENCE}
       - JWT_LEEWAY=${JWT_LEEWAY:-0}
-      - SYMFONY_WEBHOOK_URL=http://symfony:8000/internal/ws/events
-      - SYMFONY_WEBHOOK_SECRET=${SYMFONY_WEBHOOK_SECRET}
       - GATEWAY_API_KEY=${GATEWAY_API_KEY}
       - LOG_FORMAT=json
     healthcheck:
@@ -44,9 +42,6 @@ services:
     restart: unless-stopped
     environment:
       - APP_ENV=prod
-      - WS_GATEWAY_BASE_URL=http://gateway:8000
-      - WS_GATEWAY_API_KEY=${GATEWAY_API_KEY}
-      - SYMFONY_WEBHOOK_SECRET=${SYMFONY_WEBHOOK_SECRET}
     healthcheck:
       test: ["CMD", "php", "-r", "file_get_contents('http://localhost:8000/api/ping');"]
       interval: 10s

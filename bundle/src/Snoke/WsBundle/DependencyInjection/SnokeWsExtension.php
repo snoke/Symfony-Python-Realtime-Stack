@@ -18,7 +18,7 @@ class SnokeWsExtension extends Extension
         $container->setParameter('snoke_ws.events', $config['events']);
         $container->setParameter('snoke_ws.subjects', $config['subjects']);
 
-        $transportType = $config['transport']['type'] ?? 'http';
+        $transportType = $config['transport']['type'] ?? 'redis_stream';
         if ($transportType === 'http') {
             $container->register('snoke_ws.http_publisher', 'Snoke\\WsBundle\\Service\\HttpPublisher')
                 ->addArgument(new Reference('http_client'))
@@ -34,7 +34,7 @@ class SnokeWsExtension extends Extension
             $publisherService = 'snoke_ws.rabbitmq_publisher';
         }
 
-        $presenceType = $config['presence']['type'] ?? 'http';
+        $presenceType = $config['presence']['type'] ?? 'redis';
         if ($presenceType === 'http') {
             $container->register('snoke_ws.http_presence', 'Snoke\\WsBundle\\Service\\HttpPresenceProvider')
                 ->addArgument(new Reference('http_client'))
@@ -54,10 +54,5 @@ class SnokeWsExtension extends Extension
             ->addArgument(new Reference('snoke_ws.subject_key_resolver'));
 
         $container->setAlias('Snoke\\WsBundle\\Contract\\PresenceProviderInterface', $presenceService);
-
-        $container->register('snoke_ws.webhook_controller', 'Snoke\\WsBundle\\Controller\\WebhookController')
-            ->addArgument(new Reference('event_dispatcher'))
-            ->addArgument('%snoke_ws.events%')
-            ->addTag('controller.service_arguments');
     }
 }
