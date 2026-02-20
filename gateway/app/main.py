@@ -14,6 +14,7 @@ import redis.asyncio as redis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
 from jwt import PyJWKClient
+from aio_pika import ExchangeType
 
 app = FastAPI()
 
@@ -32,7 +33,10 @@ REDIS_DSN = os.getenv("REDIS_DSN", "")
 REDIS_STREAM = os.getenv("REDIS_STREAM", "ws.outbox")
 RABBITMQ_DSN = os.getenv("RABBITMQ_DSN", "")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "ws.outbox")
+RABBITMQ_EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", "ws.outbox")
+RABBITMQ_ROUTING_KEY = os.getenv("RABBITMQ_ROUTING_KEY", "ws.outbox")
 RABBITMQ_DLQ_QUEUE = os.getenv("RABBITMQ_DLQ_QUEUE", "ws.dlq")
+RABBITMQ_DLQ_EXCHANGE = os.getenv("RABBITMQ_DLQ_EXCHANGE", "ws.dlq")
 REDIS_DLQ_STREAM = os.getenv("REDIS_DLQ_STREAM", "ws.dlq")
 WEBHOOK_RETRY_ATTEMPTS = int(os.getenv("WEBHOOK_RETRY_ATTEMPTS", "3"))
 WEBHOOK_RETRY_BASE_SECONDS = float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "0.5"))
@@ -119,7 +123,8 @@ async def _push_redis_dlq(client: redis.Redis, reason: str, raw: str) -> None:
 async def _push_rabbit_dlq(channel: aio_pika.Channel, reason: str, raw: bytes) -> None:
     try:
         message = aio_pika.Message(body=raw, headers={"reason": reason})
-        await channel.default_exchange.publish(message, routing_key=RABBITMQ_DLQ_QUEUE)
+        dlq_exchange = await channel.declare_exchange(RABBITMQ_DLQ_EXCHANGE, ExchangeType.DIRECT, durable=True)
+        await dlq_exchange.publish(message, routing_key=RABBITMQ_DLQ_QUEUE)
     except Exception:
         pass
 
@@ -179,8 +184,12 @@ async def _rabbit_outbox_consumer() -> None:
             connection = await aio_pika.connect_robust(RABBITMQ_DSN)
             async with connection:
                 channel = await connection.channel()
-                await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+                exchange = await channel.declare_exchange(RABBITMQ_EXCHANGE, ExchangeType.DIRECT, durable=True)
+                dlq_exchange = await channel.declare_exchange(RABBITMQ_DLQ_EXCHANGE, ExchangeType.DIRECT, durable=True)
+                dlq_queue = await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+                await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
                 queue = await channel.declare_queue(RABBITMQ_QUEUE, durable=True)
+                await queue.bind(exchange, routing_key=RABBITMQ_ROUTING_KEY)
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():

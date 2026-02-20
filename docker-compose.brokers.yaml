@@ -13,7 +13,11 @@ services:
       - REDIS_DSN=redis://redis:6379
       - REDIS_STREAM=ws.outbox
       - RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - RABBITMQ_EXCHANGE=ws.outbox
+      - RABBITMQ_ROUTING_KEY=ws.outbox
       - RABBITMQ_QUEUE=ws.outbox
+      - RABBITMQ_DLQ_EXCHANGE=ws.dlq
+      - RABBITMQ_DLQ_QUEUE=ws.dlq
 
   symfony:
     environment:

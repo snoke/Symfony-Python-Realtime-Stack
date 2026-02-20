@@ -86,6 +86,9 @@ Environment variables:
 - `WS_RATE_LIMIT_BURST` (default `20`)
 - `REDIS_DLQ_STREAM` (default `ws.dlq`)
 - `RABBITMQ_DLQ_QUEUE` (default `ws.dlq`)
+- `RABBITMQ_EXCHANGE` (default `ws.outbox`)
+- `RABBITMQ_ROUTING_KEY` (default `ws.outbox`)
+- `RABBITMQ_DLQ_EXCHANGE` (default `ws.dlq`)
 
 ## Security controls
 Gateway JWT validation:
