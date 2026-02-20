@@ -12,9 +12,9 @@ class Kernel extends BaseKernel
 
     protected function configureRoutes(RoutingConfigurator $routes): void
     {
-        $routes->import('../config/routes/{env}/*.yaml');
+        $routes->import($this->getProjectDir().'/config/routes/{env}/*.yaml');
         if ($this->environment !== 'prod') {
-            $routes->import('../config/routes/*.yaml');
+            $routes->import($this->getProjectDir().'/config/routes/*.yaml');
         }
     }
 }
