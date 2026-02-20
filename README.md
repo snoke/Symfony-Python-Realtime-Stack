@@ -6,6 +6,7 @@ This stack provides bidirectional, scalable Realtime for Symfony apps — withou
 - Mercure / SSE are server→client only — forcing client updates creates massive overhead
 - Pusher / SaaS solutions are convenient, but your data, presence, security, and GDPR compliance are hosted externally
 - High connection counts make booting full Symfony per WebSocket message inefficient
+- The architecture allows true E2E encryption with full self-hosting control (keys never leave the clients). The gateway payload stays blind by design—unlike many PHP-centric WS stacks (e.g., Swoole) that couple transport and business logic in the same runtime
 
 ## What you get
 - Incremental Symfony-first integration (`terminator`) — quick WebSocket + webhook setup; business logic stays fully in Symfony
