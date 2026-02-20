@@ -17,3 +17,8 @@ ws_last_message:
   path: /api/ws/last-message
   methods: [GET]
   controller: App\Controller\WsDemoController::lastMessage
+
+snoke_ws_events:
+  path: /internal/ws/events
+  methods: [POST]
+  controller: Snoke\WsBundle\Controller\WebhookController::handle

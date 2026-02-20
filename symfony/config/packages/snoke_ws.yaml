@@ -1,5 +1,5 @@
 snoke_ws:
-  mode: '%env(default:terminator:WS_MODE)%'
+  mode: '%env(default::WS_MODE)%'
   transport:
     type: '%env(default::WS_TRANSPORT_TYPE)%'
     http:
@@ -11,13 +11,13 @@ snoke_ws:
         header: 'X-Api-Key'
         value: '%env(default::WS_GATEWAY_API_KEY)%'
     redis_stream:
-      dsn: '%env(default:redis://redis:6379:WS_REDIS_DSN)%'
-      stream: '%env(default:ws.outbox:WS_REDIS_STREAM)%'
+      dsn: '%env(default::WS_REDIS_DSN)%'
+      stream: '%env(default::WS_REDIS_STREAM)%'
     rabbitmq:
-      dsn: '%env(default:amqp://guest:guest@rabbitmq:5672/:WS_RABBITMQ_DSN)%'
-      exchange: '%env(default:ws.outbox:WS_RABBITMQ_EXCHANGE)%'
-      queue: '%env(default:ws.outbox:WS_RABBITMQ_QUEUE)%'
-      routing_key: '%env(default:ws.outbox:WS_RABBITMQ_ROUTING_KEY)%'
+      dsn: '%env(default::WS_RABBITMQ_DSN)%'
+      exchange: '%env(default::WS_RABBITMQ_EXCHANGE)%'
+      queue: '%env(default::WS_RABBITMQ_QUEUE)%'
+      routing_key: '%env(default::WS_RABBITMQ_ROUTING_KEY)%'
   presence:
     type: '%env(default::WS_PRESENCE_TYPE)%'
     http:
@@ -26,20 +26,20 @@ snoke_ws:
       by_user_path: '/internal/users/{user_id}/connections'
       timeout_seconds: 5
     redis:
-      dsn: '%env(default:redis://redis:6379:WS_REDIS_DSN)%'
-      prefix: '%env(default:presence::WS_REDIS_PREFIX)%'
+      dsn: '%env(default::WS_REDIS_DSN)%'
+      prefix: '%env(default::WS_REDIS_PREFIX)%'
   events:
     type: '%env(default::WS_EVENTS_TYPE)%'
     webhook:
       path: '/internal/ws/events'
       enabled: true
     redis_stream:
-      dsn: '%env(default:redis://redis:6379:WS_REDIS_DSN)%'
-      stream: '%env(default:ws.events:WS_REDIS_EVENTS_STREAM)%'
+      dsn: '%env(default::WS_REDIS_DSN)%'
+      stream: '%env(default::WS_REDIS_EVENTS_STREAM)%'
     rabbitmq:
-      dsn: '%env(default:amqp://guest:guest@rabbitmq:5672/:WS_RABBITMQ_DSN)%'
-      exchange: '%env(default:ws.events:WS_RABBITMQ_EVENTS_EXCHANGE)%'
-      queue: '%env(default:ws.events:WS_RABBITMQ_EVENTS_QUEUE)%'
-      routing_key: '%env(default:ws.events:WS_RABBITMQ_EVENTS_ROUTING_KEY)%'
+      dsn: '%env(default::WS_RABBITMQ_DSN)%'
+      exchange: '%env(default::WS_RABBITMQ_EVENTS_EXCHANGE)%'
+      queue: '%env(default::WS_RABBITMQ_EVENTS_QUEUE)%'
+      routing_key: '%env(default::WS_RABBITMQ_EVENTS_ROUTING_KEY)%'
   subjects:
     user_prefix: 'user:'

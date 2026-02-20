@@ -25,6 +25,11 @@ services:
   symfony:
     environment:
       - WS_MODE=core
+      - WS_TRANSPORT_TYPE=redis_stream
+      - WS_PRESENCE_TYPE=redis
+      - WS_EVENTS_TYPE=redis_stream
+      - DEMO_INBOX_REDIS_DSN=redis://redis:6379
+      - DEMO_INBOX_REDIS_STREAM=ws.inbox
       - WS_REDIS_DSN=redis://redis:6379
       - WS_REDIS_STREAM=ws.outbox
       - WS_REDIS_EVENTS_STREAM=ws.events
@@ -33,6 +38,21 @@ services:
       - WS_RABBITMQ_EVENTS_EXCHANGE=ws.events
       - WS_RABBITMQ_EVENTS_QUEUE=ws.events
       - WS_RABBITMQ_EVENTS_ROUTING_KEY=ws.events
+
+  symfony-consumer:
+    build:
+      context: .
+      dockerfile: symfony/Dockerfile
+    working_dir: /app
+    environment:
+      - APP_ENV=dev
+      - WS_MODE=core
+      - DEMO_INBOX_REDIS_DSN=redis://redis:6379
+      - DEMO_INBOX_REDIS_STREAM=ws.inbox
+      - WS_REDIS_DSN=redis://redis:6379
+    command: ["php", "bin/ws_inbox_consumer.php"]
+    depends_on:
+      - redis
 
   redis:
     image: redis:7-alpine

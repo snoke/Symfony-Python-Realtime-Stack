@@ -9,6 +9,7 @@ class MessageInbox
     private ?array $lastMessage = null;
     private ?Client $redis = null;
     private string $redisKey = 'demo:ws:last_message';
+    private string $filePath = '/tmp/ws_last_message.json';
 
     public function __construct()
     {
@@ -23,13 +24,24 @@ class MessageInbox
         $this->lastMessage = $payload;
         if ($this->redis) {
             $this->redis->set($this->redisKey, json_encode($payload));
+            return;
         }
+        @file_put_contents($this->filePath, json_encode($payload));
     }
 
     public function getLastMessage(): ?array
     {
         if ($this->redis) {
             $value = $this->redis->get($this->redisKey);
+            if ($value) {
+                $decoded = json_decode($value, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+        if (is_file($this->filePath)) {
+            $value = @file_get_contents($this->filePath);
             if ($value) {
                 $decoded = json_decode($value, true);
                 if (is_array($decoded)) {

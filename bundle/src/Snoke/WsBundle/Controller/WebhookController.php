@@ -20,7 +20,7 @@ class WebhookController
     #[Route('/internal/ws/events', name: 'snoke_ws_events', methods: ['POST'])]
     public function handle(Request $request): JsonResponse
     {
-        $events = $this->config['events'] ?? [];
+        $events = $this->config ?? [];
         if (($events['type'] ?? 'none') !== 'webhook' || !($events['webhook']['enabled'] ?? false)) {
             return new JsonResponse(['ok' => false, 'message' => 'webhook disabled'], 404);
         }

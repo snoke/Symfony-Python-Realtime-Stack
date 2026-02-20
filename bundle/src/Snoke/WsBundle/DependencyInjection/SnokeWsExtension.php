@@ -74,9 +74,10 @@ class SnokeWsExtension extends Extension
 
         $container->setAlias('Snoke\\WsBundle\\Contract\\PresenceProviderInterface', $presenceService);
 
-        $container->register('snoke_ws.webhook_controller', 'Snoke\\WsBundle\\Controller\\WebhookController')
+        $container->register('Snoke\\WsBundle\\Controller\\WebhookController', 'Snoke\\WsBundle\\Controller\\WebhookController')
             ->addArgument(new Reference('event_dispatcher'))
             ->addArgument('%snoke_ws.events%')
             ->addTag('controller.service_arguments');
+        $container->setAlias('snoke_ws.webhook_controller', 'Snoke\\WsBundle\\Controller\\WebhookController');
     }
 }

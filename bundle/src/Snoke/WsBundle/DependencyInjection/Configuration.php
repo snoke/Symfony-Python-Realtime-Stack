@@ -14,7 +14,7 @@ class Configuration implements ConfigurationInterface
 
         $root
             ->children()
-                ->enumNode('mode')->values(['terminator', 'core'])->defaultValue('terminator')->end()
+                ->scalarNode('mode')->defaultValue('terminator')->end()
                 ->arrayNode('transport')
                     ->children()
                         ->scalarNode('type')->defaultNull()->end()
