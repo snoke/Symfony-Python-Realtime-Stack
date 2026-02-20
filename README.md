@@ -50,7 +50,52 @@ You should see a JSON `event` on the WS client.
 - For production, configure RS256 (JWKS or public key) in `gateway`.
 
 ## Bundle config (skeleton)
-Supported types are declared but only `http` is implemented right now:
+Supported types are declared and now implemented for transport/presence:
 - `transport.type`: `http` | `redis_stream` | `rabbitmq`
 - `presence.type`: `http` | `redis`
 - `events.type`: `webhook` | `redis_stream` | `rabbitmq` | `none`
+
+### Redis transport (publisher)
+Symfony config:
+```
+vserver_ws:
+  transport:
+    type: redis_stream
+    redis_stream:
+      dsn: 'redis://redis:6379'
+      stream: 'ws.outbox'
+```
+Gateway env:
+```
+REDIS_DSN=redis://redis:6379
+REDIS_STREAM=ws.outbox
+```
+
+### RabbitMQ transport (publisher)
+Symfony config:
+```
+vserver_ws:
+  transport:
+    type: rabbitmq
+    rabbitmq:
+      dsn: 'amqp://guest:guest@rabbitmq:5672/'
+      exchange: 'ws.outbox'
+      queue: 'ws.outbox'
+      routing_key: 'ws.outbox'
+```
+Gateway env:
+```
+RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+RABBITMQ_QUEUE=ws.outbox
+```
+
+### Redis presence
+Symfony config:
+```
+vserver_ws:
+  presence:
+    type: redis
+    redis:
+      dsn: 'redis://redis:6379'
+      prefix: 'presence:'
+```

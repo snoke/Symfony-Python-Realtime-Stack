@@ -5,8 +5,10 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Set
 
+import aio_pika
 import httpx
 import jwt
+import redis.asyncio as redis
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import JSONResponse
 from jwt import PyJWKClient
@@ -20,6 +22,10 @@ JWT_PUBLIC_KEY_FILE = os.getenv("JWT_PUBLIC_KEY_FILE", "")
 JWT_JWKS_URL = os.getenv("JWT_JWKS_URL", "")
 SYMFONY_WEBHOOK_URL = os.getenv("SYMFONY_WEBHOOK_URL", "")
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
+REDIS_DSN = os.getenv("REDIS_DSN", "")
+REDIS_STREAM = os.getenv("REDIS_STREAM", "ws.outbox")
+RABBITMQ_DSN = os.getenv("RABBITMQ_DSN", "")
+RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "ws.outbox")
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: str, subjects: List[str]):
@@ -31,6 +37,23 @@ class Connection:
 
 connections: Dict[str, Connection] = {}
 subjects_index: Dict[str, Set[str]] = {}
+
+async def _send_to_subjects(subjects: List[str], payload: Any) -> int:
+    sent = 0
+    target_ids: Set[str] = set()
+    for s in subjects:
+        for cid in subjects_index.get(s, set()):
+            target_ids.add(cid)
+    for cid in target_ids:
+        conn = connections.get(cid)
+        if conn is None:
+            continue
+        try:
+            await conn.websocket.send_json({"type": "event", "payload": payload})
+            sent += 1
+        except Exception:
+            pass
+    return sent
 
 async def _post_webhook(event_type: str, conn: Connection) -> None:
     if not SYMFONY_WEBHOOK_URL:
@@ -60,6 +83,53 @@ async def _verify_jwt(token: str) -> Dict[str, Any]:
     if JWT_PUBLIC_KEY:
         return jwt.decode(token, JWT_PUBLIC_KEY, algorithms=[JWT_ALG])
     raise HTTPException(status_code=500, detail="JWT config missing")
+
+async def _redis_outbox_consumer() -> None:
+    if not REDIS_DSN:
+        return
+    client = redis.from_url(REDIS_DSN, decode_responses=True)
+    last_id = "0-0"
+    while True:
+        try:
+            response = await client.xread({REDIS_STREAM: last_id}, block=5000, count=10)
+            if not response:
+                continue
+            for _stream, messages in response:
+                for msg_id, fields in messages:
+                    last_id = msg_id
+                    raw = fields.get("data", "{}")
+                    data = json.loads(raw)
+                    subjects = data.get("subjects", [])
+                    payload = data.get("payload")
+                    await _send_to_subjects(subjects, payload)
+        except Exception:
+            await asyncio.sleep(1)
+
+async def _rabbit_outbox_consumer() -> None:
+    if not RABBITMQ_DSN:
+        return
+    while True:
+        try:
+            connection = await aio_pika.connect_robust(RABBITMQ_DSN)
+            async with connection:
+                channel = await connection.channel()
+                queue = await channel.declare_queue(RABBITMQ_QUEUE, durable=True)
+                async with queue.iterator() as queue_iter:
+                    async for message in queue_iter:
+                        async with message.process():
+                            data = json.loads(message.body.decode("utf-8"))
+                            subjects = data.get("subjects", [])
+                            payload = data.get("payload")
+                            await _send_to_subjects(subjects, payload)
+        except Exception:
+            await asyncio.sleep(2)
+
+@app.on_event("startup")
+async def startup_tasks() -> None:
+    if REDIS_DSN:
+        asyncio.create_task(_redis_outbox_consumer())
+    if RABBITMQ_DSN:
+        asyncio.create_task(_rabbit_outbox_consumer())
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
@@ -116,23 +186,7 @@ async def publish(payload: Dict[str, Any]):
 
     subjects = payload.get("subjects", [])
     message = payload.get("payload")
-    sent = 0
-
-    target_ids: Set[str] = set()
-    for s in subjects:
-        for cid in subjects_index.get(s, set()):
-            target_ids.add(cid)
-
-    for cid in target_ids:
-        conn = connections.get(cid)
-        if conn is None:
-            continue
-        try:
-            await conn.websocket.send_json({"type": "event", "payload": message})
-            sent += 1
-        except Exception:
-            pass
-
+    sent = await _send_to_subjects(subjects, message)
     return JSONResponse({"sent": sent})
 
 @app.get("/internal/connections")
