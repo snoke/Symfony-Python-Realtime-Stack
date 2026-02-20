@@ -97,6 +97,9 @@ Local default is `dev-demo-key` from `docker-compose.local.yaml`.
 ### One-shot demo (WS send + fetch)
 - `./scripts/demo_message_flow.sh`
 
+### Demo logs
+- On connect/disconnect, Symfony logs `ws.connected` / `ws.disconnected`.
+
 ## Presence demo
 - List all connections:
   - `curl -sS http://localhost:8180/api/online`
