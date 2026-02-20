@@ -1,0 +1,5 @@
+services:
+  gateway:
+    environment:
+      - JWT_ALG=HS256
+      - JWT_PUBLIC_KEY=dev-secret

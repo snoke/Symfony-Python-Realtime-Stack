@@ -5,7 +5,7 @@ services:
       - --providers.file.filename=/etc/traefik/traefik.yml
       - --entrypoints.web.address=:80
     ports:
-      - "80:80"
+      - "8180:80"
     volumes:
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
 

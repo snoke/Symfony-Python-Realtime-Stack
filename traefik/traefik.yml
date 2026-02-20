@@ -1,3 +1,11 @@
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  file:
+    filename: /etc/traefik/traefik.yml
+
 http:
   routers:
     ws:
