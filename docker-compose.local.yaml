@@ -1,5 +1,7 @@
 services:
   gateway:
     environment:
-      - JWT_ALG=HS256
-      - JWT_PUBLIC_KEY=dev-secret
+      - JWT_ALG=RS256
+      - JWT_PUBLIC_KEY_FILE=/run/keys/dev_public.pem
+    volumes:
+      - ./scripts/keys/dev_public.pem:/run/keys/dev_public.pem:ro

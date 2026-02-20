@@ -5,10 +5,11 @@ import time
 import jwt
 import websockets
 
-WS_URL = os.getenv("WS_URL", "ws://localhost/ws")
+WS_URL = os.getenv("WS_URL", "ws://localhost:8180/ws")
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret")
-JWT_ALG = os.getenv("JWT_ALG", "HS256")
+JWT_ALG = os.getenv("JWT_ALG", "RS256")
 JWT_USER_ID = os.getenv("JWT_USER_ID", "42")
+JWT_PRIVATE_KEY_FILE = os.getenv("JWT_PRIVATE_KEY_FILE", "")
 
 
 def make_token() -> str:
@@ -17,6 +18,12 @@ def make_token() -> str:
         "iat": int(time.time()),
         "exp": int(time.time()) + 3600,
     }
+    if JWT_ALG.upper().startswith("RS"):
+        if not JWT_PRIVATE_KEY_FILE:
+            raise RuntimeError("JWT_PRIVATE_KEY_FILE is required for RS256")
+        with open(JWT_PRIVATE_KEY_FILE, "r", encoding="utf-8") as f:
+            private_key = f.read()
+        return jwt.encode(payload, private_key, algorithm=JWT_ALG)
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 

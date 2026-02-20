@@ -6,5 +6,7 @@
 /symfony/.env.*.local
 /gateway/.venv/
 /.venv/
+/scripts/keys/*.pem
+/scripts/keys/*.key
 __pycache__/
 *.pyc

@@ -12,20 +12,22 @@ Default behavior:
 - Events are delivered to Symfony via a webhook (enabled by default).
 
 ## Quick start (dev)
-1. Build and run:
+1. Generate dev keys (RS256):
+   - `./scripts/gen_dev_keys.sh`
+2. Build and run:
    - `docker compose -f docker-compose.yaml -f docker-compose.local.yaml up --build`
 2. Open:
    - WebSocket: `ws://localhost:8180/ws`
    - Symfony: `http://localhost:8180/api/ping`
 
 ## Minimal WS test client
-This uses HS256 for local dev only.
+This uses RS256 for local dev.
 
 1. Install deps:
    - `python3 -m venv .venv && source .venv/bin/activate`
    - `pip install -r scripts/requirements.txt`
 2. Run:
-   - `JWT_SECRET=dev-secret WS_URL=ws://localhost:8180/ws python scripts/ws_client.py`
+   - `JWT_PRIVATE_KEY_FILE=./scripts/keys/dev_private.pem WS_URL=ws://localhost:8180/ws python scripts/ws_client.py`
 
 You should see `received: {"type":"pong"}`.
 

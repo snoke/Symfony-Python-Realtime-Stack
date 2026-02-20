@@ -16,6 +16,7 @@ app = FastAPI()
 JWT_ALG = os.getenv("JWT_ALG", "RS256")
 JWT_USER_ID_CLAIM = os.getenv("JWT_USER_ID_CLAIM", "user_id")
 JWT_PUBLIC_KEY = os.getenv("JWT_PUBLIC_KEY", "")
+JWT_PUBLIC_KEY_FILE = os.getenv("JWT_PUBLIC_KEY_FILE", "")
 JWT_JWKS_URL = os.getenv("JWT_JWKS_URL", "")
 SYMFONY_WEBHOOK_URL = os.getenv("SYMFONY_WEBHOOK_URL", "")
 GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "")
@@ -52,6 +53,10 @@ async def _verify_jwt(token: str) -> Dict[str, Any]:
         jwk_client = PyJWKClient(JWT_JWKS_URL)
         signing_key = jwk_client.get_signing_key_from_jwt(token)
         return jwt.decode(token, signing_key.key, algorithms=[JWT_ALG])
+    if JWT_PUBLIC_KEY_FILE and os.path.exists(JWT_PUBLIC_KEY_FILE):
+        with open(JWT_PUBLIC_KEY_FILE, "r", encoding="utf-8") as f:
+            public_key = f.read()
+        return jwt.decode(token, public_key, algorithms=[JWT_ALG])
     if JWT_PUBLIC_KEY:
         return jwt.decode(token, JWT_PUBLIC_KEY, algorithms=[JWT_ALG])
     raise HTTPException(status_code=500, detail="JWT config missing")
