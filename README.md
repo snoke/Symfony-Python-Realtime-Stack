@@ -13,6 +13,16 @@ Default behavior:
 - Events are delivered to Symfony via a webhook (enabled by default).
 - Incoming WS messages can be forwarded to Symfony as `message_received` events.
 
+## Terminator: Symfony‑first Architektur
+- Schnell integrierbar in bestehende Symfony‑Apps (Webhook + HTTP‑Presence).
+- Gateway bleibt relativ dünn; Symfony bleibt „Chef“ der Business‑Logik.
+- Ideal für klassische Apps mit moderatem Realtime‑Anteil.
+
+## Warum nicht nur Mercure?
+- Mercure = **SSE**, nicht bidirektionales WebSocket.
+- Kein echter Client→Server WS‑Kanal für Chat/Realtime‑Commands.
+- Für bidirektionale Heavy‑Realtime‑Use‑Cases ist WS‑Gateway + Broker flexibler.
+
 ## Quick start (dev)
 1. Generate dev keys (RS256):
    - `./scripts/gen_dev_keys.sh`
