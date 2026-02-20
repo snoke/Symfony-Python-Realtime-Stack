@@ -25,10 +25,7 @@ Default behavior:
 
 ## Quick start (prod compose)
 1. Set env:
-   - `TRAEFIK_HOST=example.com`
-   - `TRAEFIK_ACME_EMAIL=you@example.com`
-   - `GATEWAY_API_KEY=change-me`
-   - `SYMFONY_WEBHOOK_SECRET=change-me`
+   - `cp .env.example .env` and edit
 2. Create ACME storage:
    - `touch traefik/acme.json && chmod 600 traefik/acme.json`
 3. Run:
