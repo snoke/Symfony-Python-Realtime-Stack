@@ -1,2 +1,2 @@
-pyjwt==2.9.0
+pyjwt[crypto]==2.9.0
 websockets==12.0
