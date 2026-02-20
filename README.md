@@ -23,6 +23,10 @@ Default behavior:
    - Symfony: `http://localhost:8180/api/ping`
    - HTTPS (self-signed): `https://localhost:8443/api/ping`
 
+## Quick start (realtime-core)
+Broker-first, no webhook. Presence via Redis.
+- `docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml up --build`
+
 ## Quick start (prod compose)
 1. Set env:
    - `cp .env.example .env` and edit
@@ -98,6 +102,14 @@ Environment variables:
 - `RABBITMQ_ROUTING_KEY` (default `ws.outbox`)
 - `RABBITMQ_DLQ_EXCHANGE` (default `ws.dlq`)
 - `LOG_FORMAT` (default `json`)
+Realtime-core extras:
+- `REDIS_INBOX_STREAM` (default `ws.inbox`)
+- `REDIS_EVENTS_STREAM` (default `ws.events`)
+- `PRESENCE_REDIS_DSN` (default `REDIS_DSN`)
+- `PRESENCE_REDIS_PREFIX` (default `presence:`)
+- `PRESENCE_TTL_SECONDS` (default `120`)
+- `RABBITMQ_INBOX_EXCHANGE` / `RABBITMQ_INBOX_ROUTING_KEY`
+- `RABBITMQ_EVENTS_EXCHANGE` / `RABBITMQ_EVENTS_ROUTING_KEY`
 
 Gateway metrics:
 - `GET /metrics` (Prometheus-style text)
