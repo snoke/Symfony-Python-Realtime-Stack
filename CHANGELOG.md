@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- RabbitMQ Prometheus exporter config and port mapping (`:8168` -> `:15692`).
+- (nothing yet)
 
 ### Changed
-- Gateway refactored into dedicated services (`gateway/app/services/*`); `main.py` now delegates.
-- Traefik routes now include `/ready`.
-- Chat demo title updated to `Chat Demo`.
+- (nothing yet)
+
+## [0.1.1] - 2026-02-21
+### Added
+- Dev Docker builds now skip gRPC by default (build arg `INSTALL_GRPC=0`), while prod enables it.
+- Symfony `bin/console` bootstrap for the minimal app.
+- `symfony/console` dependency to support `ws:consume`.
+
+### Changed
+- Core consumer now reliably starts via `php bin/console ws:consume`.
+- Chat demo now always echoes back to the sender (even if presence list is empty).
+
+### Fixed
+- `DemoTokenService` autowiring via explicit service alias in app config.
 
 ## [0.1.0] - 2026-02-21
 ### Added

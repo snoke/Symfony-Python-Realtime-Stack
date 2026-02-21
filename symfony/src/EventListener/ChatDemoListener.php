@@ -77,10 +77,8 @@ class ChatDemoListener
     private function resolveTargets(string $fallbackUserId): array
     {
         $users = $this->collectUsers();
-        if ($users === []) {
-            return ['user:'.$fallbackUserId];
-        }
-        return $users;
+        $users[] = 'user:'.$fallbackUserId;
+        return array_values(array_unique($users));
     }
 
     /**

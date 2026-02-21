@@ -41,6 +41,8 @@ You only switch the compose files.
    ```
    docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml up --build
    ```
+   Dev builds skip gRPC by default. If you need gRPC, either use `docker-compose.prod.yaml`
+   or build with `INSTALL_GRPC=1`.
 4. Open / connect:
    - WebSocket: `ws://localhost:8180/ws`
    - API: `http://localhost:8180/api/ping`
@@ -178,7 +180,7 @@ Minimal example (make sure `subjects` is set):
 ```
 snoke_ws:
   subjects:
-    - "user:{userId}"
+    user_prefix: "user:"
 ```
 
 Token helper (service, opt-in):

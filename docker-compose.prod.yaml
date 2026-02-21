@@ -47,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: symfony/Dockerfile
+      args:
+        INSTALL_GRPC: "1"
     restart: unless-stopped
     environment:
       - APP_ENV=prod

@@ -38,6 +38,8 @@ services:
     build:
       context: .
       dockerfile: symfony/Dockerfile
+      args:
+        INSTALL_GRPC: "0"
     environment:
       - APP_ENV=dev
       - WS_PRESENCE_INTERPRETATION_STRATEGY=none

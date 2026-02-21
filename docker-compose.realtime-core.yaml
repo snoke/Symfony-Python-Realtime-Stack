@@ -55,6 +55,8 @@ services:
     build:
       context: .
       dockerfile: symfony/Dockerfile
+      args:
+        INSTALL_GRPC: "0"
     working_dir: /app
     environment:
       - APP_ENV=dev
