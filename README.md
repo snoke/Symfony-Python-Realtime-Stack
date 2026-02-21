@@ -144,7 +144,7 @@ Key env vars:
 ---
 
 ## Observability / Tracing Strategy
-Status: OTel end-to-end tracing implemented (branch `tracing-e2e`).
+Status: OTel end-to-end tracing implemented (branch `tracing`).
 
 Goal: real spans + propagation across Gateway → Broker → Symfony.
 Includes producer/consumer spans for broker publish + outbox delivery.
@@ -171,6 +171,18 @@ Symfony policies:
 - `OTEL_SERVICE_NAME`
 - `OTEL_EXPORTER_OTLP_ENDPOINT`
 - `OTEL_EXPORTER_OTLP_PROTOCOL`
+
+### Tracing Smoke Checks (real)
+1. Start the core stack (with realtime core enabled).
+2. Runtime deps check (gateway + symfony):
+   ```
+   COMPOSE_FILES="docker-compose.yaml docker-compose.local.yaml docker-compose.realtime-core.yaml" \
+     ./scripts/tracing_runtime_check.sh
+   ```
+3. End-to-end propagation check (traceparent + trace_id):
+   ```
+   ./scripts/tracing_e2e_check.sh
+   ```
 
 ---
 
