@@ -55,6 +55,9 @@ RABBITMQ_EVENTS_QUEUE = os.getenv("RABBITMQ_EVENTS_QUEUE", "")
 RABBITMQ_EVENTS_QUEUE_TTL_MS = int(os.getenv("RABBITMQ_EVENTS_QUEUE_TTL_MS", "0"))
 RABBITMQ_DLQ_QUEUE = os.getenv("RABBITMQ_DLQ_QUEUE", "ws.dlq")
 RABBITMQ_DLQ_EXCHANGE = os.getenv("RABBITMQ_DLQ_EXCHANGE", "ws.dlq")
+RABBITMQ_REPLAY_TARGET_EXCHANGE = os.getenv("RABBITMQ_REPLAY_TARGET_EXCHANGE", "")
+RABBITMQ_REPLAY_TARGET_ROUTING_KEY = os.getenv("RABBITMQ_REPLAY_TARGET_ROUTING_KEY", "")
+RABBITMQ_REPLAY_MAX_BATCH = int(os.getenv("RABBITMQ_REPLAY_MAX_BATCH", "100"))
 REDIS_DLQ_STREAM = os.getenv("REDIS_DLQ_STREAM", "ws.dlq")
 REDIS_INBOX_STREAM = os.getenv("REDIS_INBOX_STREAM", "ws.inbox")
 REDIS_EVENTS_STREAM = os.getenv("REDIS_EVENTS_STREAM", "ws.events")
@@ -97,6 +100,7 @@ metrics: Dict[str, int] = {
     "broker_publish_total": 0,
     "webhook_publish_total": 0,
     "webhook_publish_failed_total": 0,
+    "rabbitmq_replay_total": 0,
 }
 
 redis_publish_client: Optional[redis.Redis] = None
@@ -518,6 +522,52 @@ async def publish(payload: Dict[str, Any]):
     sent = await _send_to_subjects(subjects, message)
     metrics["publish_total"] += 1
     return JSONResponse({"sent": sent})
+
+@app.post("/internal/replay/rabbitmq")
+async def replay_rabbitmq(payload: Dict[str, Any]):
+    api_key = payload.get("api_key") or ""
+    if GATEWAY_API_KEY and api_key != GATEWAY_API_KEY:
+        raise HTTPException(status_code=401, detail="invalid api key")
+    if not RABBITMQ_DSN:
+        raise HTTPException(status_code=500, detail="rabbitmq not configured")
+
+    limit = int(payload.get("limit") or RABBITMQ_REPLAY_MAX_BATCH)
+    if limit <= 0:
+        return JSONResponse({"replayed": 0})
+
+    target_exchange = RABBITMQ_REPLAY_TARGET_EXCHANGE or RABBITMQ_INBOX_EXCHANGE
+    target_routing_key = RABBITMQ_REPLAY_TARGET_ROUTING_KEY or RABBITMQ_INBOX_ROUTING_KEY
+
+    replayed = 0
+    connection = await aio_pika.connect_robust(RABBITMQ_DSN)
+    async with connection:
+        channel = await connection.channel()
+        dlq_exchange = await channel.declare_exchange(RABBITMQ_DLQ_EXCHANGE, ExchangeType.DIRECT, durable=True)
+        dlq_queue = await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+        await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
+
+        exchange = await channel.declare_exchange(target_exchange, ExchangeType.DIRECT, durable=True)
+
+        while replayed < limit:
+            message = await dlq_queue.get(fail=False)
+            if message is None:
+                break
+            try:
+                await exchange.publish(
+                    aio_pika.Message(
+                        body=message.body,
+                        headers={**(message.headers or {}), "replayed": True},
+                    ),
+                    routing_key=target_routing_key,
+                )
+                await message.ack()
+                replayed += 1
+            except Exception:
+                await message.nack(requeue=True)
+                break
+
+    metrics["rabbitmq_replay_total"] += replayed
+    return JSONResponse({"replayed": replayed})
 
 @app.get("/metrics")
 async def metrics_endpoint():
