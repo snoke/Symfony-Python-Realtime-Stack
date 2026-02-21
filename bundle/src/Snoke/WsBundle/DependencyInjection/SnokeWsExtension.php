@@ -13,32 +13,63 @@ class SnokeWsExtension extends Extension
         $configuration = new Configuration();
         $config = $this->processConfiguration($configuration, $configs);
 
-        $mode = $config['mode'] ?? 'terminator';
+        $resolveEnvValue = static function (?string $value, string $envName): ?string {
+            if ($value === null) {
+                return null;
+            }
+            if (is_string($value) && str_starts_with($value, 'env_')) {
+                $env = $_ENV[$envName] ?? getenv($envName);
+                if ($env === false || $env === null || $env === '') {
+                    return null;
+                }
+                return (string) $env;
+            }
+            return $value;
+        };
 
-        $transportType = $config['transport']['type'] ?? null;
-        if (!$transportType) {
-            $transportType = $mode === 'core' ? 'redis_stream' : 'http';
+        $rawConfig = $config;
+
+        $resolvedMode = $resolveEnvValue($config['mode'] ?? null, 'WS_MODE') ?? 'terminator';
+
+        $resolvedTransportType = $resolveEnvValue($config['transport']['type'] ?? null, 'WS_TRANSPORT_TYPE');
+        if (!$resolvedTransportType) {
+            $resolvedTransportType = $resolvedMode === 'core' ? 'redis_stream' : 'http';
         }
-        $config['transport']['type'] = $transportType;
-
-        $presenceType = $config['presence']['type'] ?? null;
-        if (!$presenceType) {
-            $presenceType = $mode === 'core' ? 'redis' : 'http';
+        if (empty($rawConfig['transport']['type'])) {
+            $rawConfig['transport']['type'] = $resolvedTransportType;
         }
-        $config['presence']['type'] = $presenceType;
 
-        $eventsType = $config['events']['type'] ?? null;
-        if (!$eventsType) {
-            $eventsType = $mode === 'core' ? 'redis_stream' : 'webhook';
+        $resolvedPresenceType = $resolveEnvValue($config['presence']['type'] ?? null, 'WS_PRESENCE_TYPE');
+        if (!$resolvedPresenceType) {
+            $resolvedPresenceType = $resolvedMode === 'core' ? 'redis' : 'http';
         }
-        $config['events']['type'] = $eventsType;
+        if (empty($rawConfig['presence']['type'])) {
+            $rawConfig['presence']['type'] = $resolvedPresenceType;
+        }
 
-        $container->setParameter('snoke_ws.mode', $mode);
-        $container->setParameter('snoke_ws.transport', $config['transport']);
-        $container->setParameter('snoke_ws.presence', $config['presence']);
-        $container->setParameter('snoke_ws.events', $config['events']);
-        $container->setParameter('snoke_ws.tracing', $config['tracing']);
-        $container->setParameter('snoke_ws.subjects', $config['subjects']);
+        $resolvedEventsType = $resolveEnvValue($config['events']['type'] ?? null, 'WS_EVENTS_TYPE');
+        if (!$resolvedEventsType) {
+            $resolvedEventsType = $resolvedMode === 'core' ? 'redis_stream' : 'webhook';
+        }
+        if (empty($rawConfig['events']['type'])) {
+            $rawConfig['events']['type'] = $resolvedEventsType;
+        }
+
+        $mode = $resolvedMode;
+        $transportType = $resolvedTransportType;
+        $presenceType = $resolvedPresenceType;
+        $eventsType = $resolvedEventsType;
+
+        if (empty($rawConfig['mode'])) {
+            $rawConfig['mode'] = $resolvedMode;
+        }
+
+        $container->setParameter('snoke_ws.mode', $rawConfig['mode']);
+        $container->setParameter('snoke_ws.transport', $rawConfig['transport']);
+        $container->setParameter('snoke_ws.presence', $rawConfig['presence']);
+        $container->setParameter('snoke_ws.events', $rawConfig['events']);
+        $container->setParameter('snoke_ws.tracing', $rawConfig['tracing']);
+        $container->setParameter('snoke_ws.subjects', $rawConfig['subjects']);
 
         $container->register('snoke_ws.http_publisher', 'Snoke\\WsBundle\\Service\\HttpPublisher')
             ->addArgument(new Reference('http_client'))

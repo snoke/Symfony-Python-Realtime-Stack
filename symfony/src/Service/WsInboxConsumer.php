@@ -4,15 +4,19 @@ namespace App\Service;
 
 use Predis\Client;
 use Psr\Log\LoggerInterface;
+use Snoke\WsBundle\Event\WebsocketConnectionClosedEvent;
+use Snoke\WsBundle\Event\WebsocketConnectionEstablishedEvent;
+use Snoke\WsBundle\Event\WebsocketMessageReceivedEvent;
 use Snoke\WsBundle\Service\TracingService;
 use OpenTelemetry\API\Trace\SpanKind;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class WsInboxConsumer
 {
     private int $minLevel;
 
     public function __construct(
-        private MessageInbox $inbox,
+        private EventDispatcherInterface $dispatcher,
         private LoggerInterface $logger,
         private TracingService $tracing
     ) {
@@ -30,24 +34,25 @@ class WsInboxConsumer
             return;
         }
 
-        $stream = $_ENV['DEMO_INBOX_REDIS_STREAM']
+        $inboxStream = $_ENV['DEMO_INBOX_REDIS_STREAM']
             ?? $_ENV['WS_REDIS_INBOX_STREAM']
             ?? $_ENV['REDIS_INBOX_STREAM']
             ?? 'ws.inbox';
 
         $client = new Client($dsn);
 
-        $lastId = '$';
-        $latest = $client->xrevrange($stream, '+', '-', 1);
-        foreach ($this->normalizeEntries($latest) as [$entryId, $fields]) {
-            $lastId = (string) $entryId;
-            $this->handleMessage($fields);
-            break;
+        $streamNames = $this->resolveStreams($inboxStream);
+        if ($streamNames === []) {
+            $this->logger->error('ws.inbox.missing_streams');
+            return;
         }
 
+        $lastIds = $this->resolveStartIds($client, $streamNames);
+        $streamIndex = array_flip($streamNames);
+
         $this->logInfo('ws.inbox.consumer_started', [
-            'stream' => $stream,
-            'last_id' => $lastId,
+            'streams' => $streamNames,
+            'last_ids' => $lastIds,
         ]);
 
         while (true) {
@@ -57,17 +62,22 @@ class WsInboxConsumer
                     return true;
                 });
                 try {
-                    $response = $client->xread(10, 5000, [$stream], $lastId);
+                    $response = $client->xread(10, 5000, $streamNames, ...$lastIds);
                 } finally {
                     restore_error_handler();
                 }
-                if (!$response || !isset($response[$stream]) || !is_array($response[$stream])) {
+                if (!$response || !is_array($response)) {
                     continue;
                 }
-                foreach ($this->normalizeEntries($response[$stream]) as [$entryId, $fields]) {
-                    $entryId = (string) $entryId;
-                    $this->handleMessage($fields);
-                    $lastId = $entryId;
+                foreach ($response as $stream => $entries) {
+                    if (!isset($streamIndex[$stream]) || !is_array($entries)) {
+                        continue;
+                    }
+                    foreach ($this->normalizeEntries($entries) as [$entryId, $fields]) {
+                        $entryId = (string) $entryId;
+                        $this->handleEvent($fields);
+                        $lastIds[$streamIndex[$stream]] = $entryId;
+                    }
                 }
             } catch (\Throwable $e) {
                 $this->logger->error('ws.inbox.consume_error: '.$e->getMessage());
@@ -76,7 +86,53 @@ class WsInboxConsumer
         }
     }
 
-    private function handleMessage(array $fields): void
+    /**
+     * @return array<int, string>
+     */
+    private function resolveStreams(string $inboxStream): array
+    {
+        $streams = [];
+        if ($inboxStream !== '') {
+            $streams[] = $inboxStream;
+        }
+
+        $eventsType = (string) ($_ENV['WS_EVENTS_TYPE'] ?? '');
+        $eventsStream = (string) ($_ENV['WS_REDIS_EVENTS_STREAM']
+            ?? $_ENV['REDIS_EVENTS_STREAM']
+            ?? 'ws.events');
+        if ($eventsStream !== '' && $eventsStream !== $inboxStream && ($eventsType === '' || $eventsType === 'redis_stream')) {
+            $streams[] = $eventsStream;
+        }
+
+        return array_values(array_unique($streams));
+    }
+
+    /**
+     * @param array<int, string> $streamNames
+     * @return array<int, string>
+     */
+    private function resolveStartIds(Client $client, array $streamNames): array
+    {
+        $lastIds = [];
+        foreach ($streamNames as $stream) {
+            $lastId = '0-0';
+            try {
+                $latest = $client->xrevrange($stream, '+', '-', 1);
+                if (is_array($latest) && $latest !== []) {
+                    $key = array_key_first($latest);
+                    if (is_string($key) && $key !== '') {
+                        $lastId = $key;
+                    }
+                }
+            } catch (\Throwable) {
+                $lastId = '0-0';
+            }
+            $lastIds[] = $lastId;
+        }
+        return $lastIds;
+    }
+
+    private function handleEvent(array $fields): void
     {
         $raw = $fields['data'] ?? '';
         if (!is_string($raw) || $raw === '') {
@@ -86,31 +142,57 @@ class WsInboxConsumer
         if (!is_array($event)) {
             return;
         }
-        if (($event['type'] ?? '') !== 'message_received') {
-            return;
+        $type = (string) ($event['type'] ?? '');
+        $connectionId = (string) ($event['connection_id'] ?? '');
+        $userId = (string) ($event['user_id'] ?? '');
+        $subjects = $event['subjects'] ?? [];
+        if (!is_array($subjects)) {
+            $subjects = [];
         }
+        $connectedAt = (int) ($event['connected_at'] ?? 0);
         $traceparentField = $this->tracing->getTraceparentField();
-        $traceIdField = $this->tracing->getTraceIdField();
-        $payload = [
-            'connection_id' => $event['connection_id'] ?? null,
-            'user_id' => $event['user_id'] ?? null,
-            'subjects' => $event['subjects'] ?? [],
-            'connected_at' => $event['connected_at'] ?? null,
-            'message' => $event['message'] ?? null,
-            'raw' => $event['raw'] ?? null,
-            'trace_id' => $event[$traceIdField] ?? null,
-            'traceparent' => $event[$traceparentField] ?? null,
-            'received_at' => time(),
-        ];
+        $traceparent = $event[$traceparentField] ?? null;
+        if (!is_string($traceparent)) {
+            $traceparent = null;
+        }
 
         $scope = $this->tracing->startSpan('ws.inbox.consume', SpanKind::KIND_CONSUMER, [
-            'ws.connection_id' => (string) ($payload['connection_id'] ?? ''),
-            'ws.user_id' => (string) ($payload['user_id'] ?? ''),
-        ], is_string($payload['traceparent']) ? $payload['traceparent'] : null);
+            'ws.event_type' => $type,
+            'ws.connection_id' => $connectionId,
+            'ws.user_id' => $userId,
+        ], $traceparent);
 
         try {
-            $this->inbox->setLastMessage($payload);
-            $this->logInfo('ws.inbox.message_received', $payload);
+            if ($type === 'message_received') {
+                $message = $event['message'] ?? null;
+                $rawMessage = (string) ($event['raw'] ?? '');
+                $this->dispatcher->dispatch(new WebsocketMessageReceivedEvent(
+                    $connectionId,
+                    $userId,
+                    $subjects,
+                    $connectedAt,
+                    $message,
+                    $rawMessage
+                ));
+                return;
+            }
+            if ($type === 'connected') {
+                $this->dispatcher->dispatch(new WebsocketConnectionEstablishedEvent(
+                    $connectionId,
+                    $userId,
+                    $subjects,
+                    $connectedAt
+                ));
+                return;
+            }
+            if ($type === 'disconnected') {
+                $this->dispatcher->dispatch(new WebsocketConnectionClosedEvent(
+                    $connectionId,
+                    $userId,
+                    $subjects,
+                    $connectedAt
+                ));
+            }
         } finally {
             if ($scope) {
                 $scope->end();
@@ -129,14 +211,31 @@ class WsInboxConsumer
         $normalized = [];
         foreach ($entries as $key => $value) {
             if (is_array($value) && array_key_exists(0, $value) && array_key_exists(1, $value)) {
-                $normalized[] = [$value[0], $value[1]];
+                $normalized[] = [$value[0], $this->normalizeFields($value[1])];
                 continue;
             }
             if (is_string($key) && is_array($value)) {
-                $normalized[] = [$key, $value];
+                $normalized[] = [$key, $this->normalizeFields($value)];
             }
         }
         return $normalized;
+    }
+
+    private function normalizeFields(array $fields): array
+    {
+        if ($fields === []) {
+            return $fields;
+        }
+        $keys = array_keys($fields);
+        if ($keys !== range(0, count($fields) - 1)) {
+            return $fields;
+        }
+        $assoc = [];
+        $count = count($fields);
+        for ($i = 0; $i + 1 < $count; $i += 2) {
+            $assoc[(string) $fields[$i]] = $fields[$i + 1];
+        }
+        return $assoc;
     }
 
     private function logInfo(string $message, array $context = []): void

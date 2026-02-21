@@ -1,7 +1,7 @@
 snoke_ws:
-  mode: '%env(resolve:default::WS_MODE)%'
+  mode: '%env(default:ws_mode_default:WS_MODE)%'
   transport:
-    type: '%env(resolve:default::WS_TRANSPORT_TYPE)%'
+    type: '%env(default:ws_transport_type_default:WS_TRANSPORT_TYPE)%'
     http:
       base_url: '%env(resolve:default::WS_GATEWAY_BASE_URL)%'
       publish_path: '/internal/publish'
@@ -19,7 +19,7 @@ snoke_ws:
       queue: '%env(resolve:default::WS_RABBITMQ_QUEUE)%'
       routing_key: '%env(resolve:default::WS_RABBITMQ_ROUTING_KEY)%'
   presence:
-    type: '%env(resolve:default::WS_PRESENCE_TYPE)%'
+    type: '%env(default:ws_presence_type_default:WS_PRESENCE_TYPE)%'
     http:
       base_url: '%env(resolve:default::WS_GATEWAY_BASE_URL)%'
       list_path: '/internal/connections'
@@ -39,7 +39,7 @@ snoke_ws:
       ttl_seconds: '%env(int:default::WS_PRESENCE_WRITER_TTL_SECONDS)%'
       refresh_on_message: '%env(bool:default::WS_PRESENCE_WRITER_REFRESH_ON_MESSAGE)%'
   events:
-    type: '%env(resolve:default::WS_EVENTS_TYPE)%'
+    type: '%env(default:ws_events_type_default:WS_EVENTS_TYPE)%'
     webhook:
       path: '/internal/ws/events'
       enabled: true

@@ -7,7 +7,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Annotation\Route;
 
-class WsDemoController
+class CoreDemoController
 {
     public function __construct(
         private MessageInbox $inbox

@@ -22,7 +22,7 @@ http:
         - rate-limit
         - ip-allowlist
     api:
-      rule: "PathPrefix(`/api`)"
+      rule: "PathPrefix(`/api`) || PathPrefix(`/demo`)"
       service: api
       entryPoints:
         - web

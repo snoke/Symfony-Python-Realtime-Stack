@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILES=${COMPOSE_FILES:-"docker-compose.yaml docker-compose.local.yaml"}
+COMPOSE_FILES=${COMPOSE_FILES:-"docker-compose.yaml docker-compose.terminator.yaml"}
 COMPOSE_ARGS=()
 for file in $COMPOSE_FILES; do
   COMPOSE_ARGS+=("-f" "$file")

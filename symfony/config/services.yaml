@@ -1,4 +1,8 @@
 parameters:
+  ws_mode_default: 'terminator'
+  ws_transport_type_default: ''
+  ws_presence_type_default: ''
+  ws_events_type_default: ''
   ws_presence_interpretation_strategy_default: 'none'
   ws_presence_writer_type_default: 'none'
 

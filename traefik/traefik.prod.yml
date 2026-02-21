@@ -31,7 +31,7 @@ http:
       tls:
         certResolver: le
     api:
-      rule: "Host(`${TRAEFIK_HOST}`) && (PathPrefix(`/api`))"
+      rule: "Host(`${TRAEFIK_HOST}`) && (PathPrefix(`/api`) || PathPrefix(`/demo`))"
       service: api
       entryPoints:
         - websecure

@@ -10,3 +10,13 @@ rabbitmqctl set_policy ws-replay-lazy "^ws\.(inbox|events)$" '{"queue-mode":"laz
 - Track DLQ depth + inbox/event queue depth.
 - Alert on spikes in `rabbitmq_replay_total` or repeated replays.
 - Observe replay API rate limits via `/metrics` counters.
+
+## Push Demo (optional)
+The chat demo is the primary UI demo. For headless checks you can still use:
+```
+./scripts/push_demo.sh
+```
+Core mode:
+```
+WS_MODE=core ./scripts/push_demo.sh
+```

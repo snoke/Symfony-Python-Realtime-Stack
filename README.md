@@ -27,37 +27,28 @@ Event routing (EVENTS_MODE): `webhook | broker | both | none`
 
 ---
 
-## Quick Start (terminator)
+## Quick Start (terminator + core)
+You only switch the compose files.
 1. Generate dev keys (RS256):
    ```
    ./scripts/gen_dev_keys.sh
    ```
-2. Build & run:
+2. Terminator mode:
    ```
-   docker compose -f docker-compose.yaml -f docker-compose.local.yaml up --build
+   docker compose -f docker-compose.yaml -f docker-compose.terminator.yaml up --build
    ```
-3. Open / connect:
+3. Core mode:
+   ```
+   docker compose -f docker-compose.yaml -f docker-compose.terminator.yaml -f docker-compose.realtime-core.yaml up --build
+   ```
+4. Open / connect:
    - WebSocket: `ws://localhost:8180/ws`
    - API: `http://localhost:8180/api/ping`
-4. Webhook enabled by default:
+   - Chat demo: `http://localhost:8180/demo/chat` (works in both modes)
+5. Webhook (terminator only):
    ```
    SYMFONY_WEBHOOK_URL=http://symfony:8000/internal/ws/events
    ```
-
----
-
-## Quick Start (core)
-1. Generate dev keys (RS256):
-   ```
-   ./scripts/gen_dev_keys.sh
-   ```
-2. Build & run (broker-first):
-   ```
-   docker compose -f docker-compose.yaml -f docker-compose.local.yaml -f docker-compose.realtime-core.yaml up --build
-   ```
-3. Open / connect:
-   - WebSocket: `ws://localhost:8180/ws`
-   - API: `http://localhost:8180/api/ping`
 
 ### Core stack details
 What you get in `core` mode:
@@ -72,7 +63,7 @@ Core flow (default):
 
 Optional: run consumer manually (if you don't use the service):
 ```
-docker compose -f docker-compose.yaml -f docker-compose.local.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
+docker compose -f docker-compose.yaml -f docker-compose.terminator.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
 ```
 
 Useful env vars in core:
@@ -107,22 +98,6 @@ Verify core wiring quickly:
    ```
 
 Expected response: `{"type":"pong"}`
-
----
-
-## Push Demo (terminator)
-1. Start the WS client in one terminal.
-2. Trigger a push from Symfony:
-   ```
-   ./scripts/push_demo.sh
-   ```
-The event appears on the WS client in real time.
-
-For core mode:
-```
-WS_MODE=core ./scripts/push_demo.sh
-```
-This sends a WS message and checks `/api/ws/last-message`.
 
 ---
 

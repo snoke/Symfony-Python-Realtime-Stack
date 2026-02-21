@@ -21,6 +21,8 @@
     "symfony/http-client": "^8.0",
     "symfony/event-dispatcher": "^8.0",
     "symfony/yaml": "^8.0",
+    "symfony/twig-bundle": "^8.0",
+    "twig/twig": "^3.0",
     "snoke/ws-bundle": "dev-main",
     "predis/predis": "^2.3",
     "php-amqplib/php-amqplib": "^3.7"

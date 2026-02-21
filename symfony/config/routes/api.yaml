@@ -16,9 +16,14 @@ api_online:
 ws_last_message:
   path: /api/ws/last-message
   methods: [GET]
-  controller: App\Controller\WsDemoController::lastMessage
+  controller: App\Controller\CoreDemoController::lastMessage
 
 snoke_ws_events:
   path: /internal/ws/events
   methods: [POST]
   controller: Snoke\WsBundle\Controller\WebhookController::handle
+
+demo_chat:
+  path: /demo/chat
+  methods: [GET]
+  controller: App\Controller\ChatDemoController::chatPage

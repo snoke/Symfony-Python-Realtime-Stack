@@ -926,6 +926,52 @@ async def _rabbit_outbox_consumer() -> None:
             await asyncio.sleep(backoff)
             backoff = min(30.0, backoff * 2)
 
+async def _init_rabbitmq() -> None:
+    global rabbit_publish_connection, rabbit_publish_channel, rabbit_inbox_exchange, rabbit_events_exchange
+    backoff = 1.0
+    while True:
+        try:
+            rabbit_publish_connection = await aio_pika.connect_robust(RABBITMQ_DSN)
+            rabbit_publish_channel = await rabbit_publish_connection.channel()
+            rabbit_inbox_exchange = await rabbit_publish_channel.declare_exchange(
+                RABBITMQ_INBOX_EXCHANGE,
+                ExchangeType.DIRECT,
+                durable=True,
+            )
+            rabbit_events_exchange = await rabbit_publish_channel.declare_exchange(
+                RABBITMQ_EVENTS_EXCHANGE,
+                ExchangeType.DIRECT,
+                durable=True,
+            )
+            if RABBITMQ_DLQ_EXCHANGE and RABBITMQ_DLQ_QUEUE:
+                dlq_exchange = await rabbit_publish_channel.declare_exchange(
+                    RABBITMQ_DLQ_EXCHANGE,
+                    ExchangeType.DIRECT,
+                    durable=True,
+                )
+                dlq_queue = await rabbit_publish_channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+                await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
+            if RABBITMQ_INBOX_QUEUE and rabbit_inbox_exchange:
+                inbox_queue = await rabbit_publish_channel.declare_queue(
+                    RABBITMQ_INBOX_QUEUE,
+                    durable=True,
+                    arguments=_rabbit_queue_args(RABBITMQ_INBOX_QUEUE_TTL_MS),
+                )
+                await inbox_queue.bind(rabbit_inbox_exchange, routing_key=RABBITMQ_INBOX_ROUTING_KEY)
+            if RABBITMQ_EVENTS_QUEUE and rabbit_events_exchange:
+                events_queue = await rabbit_publish_channel.declare_queue(
+                    RABBITMQ_EVENTS_QUEUE,
+                    durable=True,
+                    arguments=_rabbit_queue_args(RABBITMQ_EVENTS_QUEUE_TTL_MS),
+                )
+                await events_queue.bind(rabbit_events_exchange, routing_key=RABBITMQ_EVENTS_ROUTING_KEY)
+            logger.info("rabbitmq.connected")
+            return
+        except Exception as exc:
+            logger.warning("rabbitmq.connect_failed: %s", exc)
+            await asyncio.sleep(backoff)
+            backoff = min(30.0, backoff * 2)
+
 @app.on_event("startup")
 async def startup_tasks() -> None:
     global redis_publish_client, presence_client, http_client
@@ -937,40 +983,7 @@ async def startup_tasks() -> None:
     if PRESENCE_REDIS_DSN:
         presence_client = redis.from_url(PRESENCE_REDIS_DSN, decode_responses=True)
     if RABBITMQ_DSN:
-        rabbit_publish_connection = await aio_pika.connect_robust(RABBITMQ_DSN)
-        rabbit_publish_channel = await rabbit_publish_connection.channel()
-        rabbit_inbox_exchange = await rabbit_publish_channel.declare_exchange(
-            RABBITMQ_INBOX_EXCHANGE,
-            ExchangeType.DIRECT,
-            durable=True,
-        )
-        rabbit_events_exchange = await rabbit_publish_channel.declare_exchange(
-            RABBITMQ_EVENTS_EXCHANGE,
-            ExchangeType.DIRECT,
-            durable=True,
-        )
-        if RABBITMQ_DLQ_EXCHANGE and RABBITMQ_DLQ_QUEUE:
-            dlq_exchange = await rabbit_publish_channel.declare_exchange(
-                RABBITMQ_DLQ_EXCHANGE,
-                ExchangeType.DIRECT,
-                durable=True,
-            )
-            dlq_queue = await rabbit_publish_channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
-            await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
-        if RABBITMQ_INBOX_QUEUE and rabbit_inbox_exchange:
-            inbox_queue = await rabbit_publish_channel.declare_queue(
-                RABBITMQ_INBOX_QUEUE,
-                durable=True,
-                arguments=_rabbit_queue_args(RABBITMQ_INBOX_QUEUE_TTL_MS),
-            )
-            await inbox_queue.bind(rabbit_inbox_exchange, routing_key=RABBITMQ_INBOX_ROUTING_KEY)
-        if RABBITMQ_EVENTS_QUEUE and rabbit_events_exchange:
-            events_queue = await rabbit_publish_channel.declare_queue(
-                RABBITMQ_EVENTS_QUEUE,
-                durable=True,
-                arguments=_rabbit_queue_args(RABBITMQ_EVENTS_QUEUE_TTL_MS),
-            )
-            await events_queue.bind(rabbit_events_exchange, routing_key=RABBITMQ_EVENTS_ROUTING_KEY)
+        asyncio.create_task(_init_rabbitmq())
     if REDIS_DSN:
         asyncio.create_task(_redis_outbox_consumer())
     if RABBITMQ_DSN:
@@ -994,6 +1007,10 @@ async def shutdown_tasks() -> None:
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     token = websocket.headers.get("authorization", "").replace("Bearer ", "")
+    if not token:
+        token = websocket.query_params.get("token", "")
+    if not token:
+        token = websocket.query_params.get("access_token", "")
     if not token:
         await websocket.close(code=4401)
         return

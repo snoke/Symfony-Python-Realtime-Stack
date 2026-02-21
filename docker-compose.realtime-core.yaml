@@ -21,6 +21,9 @@ services:
       - RABBITMQ_EVENTS_ROUTING_KEY=ws.events
       - RABBITMQ_DLQ_EXCHANGE=ws.dlq
       - RABBITMQ_DLQ_QUEUE=ws.dlq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   symfony:
     environment:
@@ -63,11 +66,16 @@ services:
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - WS_TRACEPARENT_FIELD=traceparent
       - WS_TRACE_ID_FIELD=trace_id
+      - WS_TRANSPORT_TYPE=redis_stream
+      - WS_PRESENCE_TYPE=redis
       - WS_PRESENCE_INTERPRETATION_STRATEGY=none
       - WS_PRESENCE_WRITER_TYPE=none
       - DEMO_INBOX_REDIS_DSN=redis://redis:6379
       - DEMO_INBOX_REDIS_STREAM=ws.inbox
       - WS_REDIS_DSN=redis://redis:6379
+      - WS_REDIS_STREAM=ws.outbox
+      - WS_REDIS_EVENTS_STREAM=ws.events
+      - "WS_REDIS_PREFIX=presence:"
       - WS_CONSUMER_LOG_LEVEL=info
     command: ["php", "bin/ws_inbox_consumer.php"]
     depends_on:
@@ -83,6 +91,11 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     ports:
       - "5672:5672"
       - "8167:15672"

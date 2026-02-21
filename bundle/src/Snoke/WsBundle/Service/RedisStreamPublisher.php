@@ -35,7 +35,7 @@ class RedisStreamPublisher implements PublisherInterface
         }
         try {
             $data = json_encode($body, JSON_UNESCAPED_UNICODE);
-            $this->client->xadd($stream, '*', ['data' => $data]);
+            $this->client->xadd($stream, ['data' => $data], '*');
         } finally {
             if ($scope) {
                 $scope->end();

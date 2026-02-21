@@ -40,6 +40,7 @@ class RedisPresenceProvider implements PresenceProviderInterface
         $pattern = $prefix.'conn:*';
         do {
             [$cursor, $keys] = $this->client->scan($cursor, ['match' => $pattern, 'count' => 100]);
+            $cursor = (int) $cursor;
             foreach ($keys as $key) {
                 $data = $this->client->hgetall($key);
                 if (!empty($data)) {
