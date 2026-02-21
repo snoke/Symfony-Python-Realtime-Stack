@@ -59,10 +59,23 @@ PRESENCE_TTL_SECONDS = int(os.getenv("PRESENCE_TTL_SECONDS", "120"))
 WEBHOOK_RETRY_ATTEMPTS = int(os.getenv("WEBHOOK_RETRY_ATTEMPTS", "3"))
 WEBHOOK_RETRY_BASE_SECONDS = float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "0.5"))
 WEBHOOK_TIMEOUT_SECONDS = float(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5"))
+REPLAY_STRATEGY = os.getenv("REPLAY_STRATEGY", "none").lower()
+REPLAY_RETENTION_SECONDS = int(os.getenv("REPLAY_RETENTION_SECONDS", "0"))
+REPLAY_MAXLEN = int(os.getenv("REPLAY_MAXLEN", "0"))
+REPLAY_SNAPSHOT_SECONDS = int(os.getenv("REPLAY_SNAPSHOT_SECONDS", "0"))
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+if REPLAY_STRATEGY not in ("none", "bounded", "durable"):
+    REPLAY_STRATEGY = "none"
+if REPLAY_RETENTION_SECONDS < 0:
+    REPLAY_RETENTION_SECONDS = 0
+if REPLAY_MAXLEN < 0:
+    REPLAY_MAXLEN = 0
+if REPLAY_SNAPSHOT_SECONDS < 0:
+    REPLAY_SNAPSHOT_SECONDS = 0
 
 logger = logging.getLogger("gateway")
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
@@ -88,6 +101,7 @@ rabbit_publish_channel: Optional[aio_pika.Channel] = None
 rabbit_inbox_exchange: Optional[aio_pika.Exchange] = None
 rabbit_events_exchange: Optional[aio_pika.Exchange] = None
 http_client: Optional[httpx.AsyncClient] = None
+_last_stream_trim: Dict[str, float] = {}
 
 def _log(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}
@@ -178,12 +192,34 @@ async def _push_rabbit_dlq(channel: aio_pika.Channel, reason: str, raw: bytes) -
     except Exception:
         pass
 
+async def _maybe_trim_stream(client: redis.Redis, stream: str) -> None:
+    if REPLAY_STRATEGY != "bounded":
+        return
+    if REPLAY_RETENTION_SECONDS <= 0:
+        return
+    now = time.time()
+    last = _last_stream_trim.get(stream, 0.0)
+    interval = max(1.0, min(60.0, REPLAY_RETENTION_SECONDS / 4))
+    if now - last < interval:
+        return
+    min_id = f"{int((now - REPLAY_RETENTION_SECONDS) * 1000)}-0"
+    try:
+        await client.xtrim(stream, minid=min_id)
+    except Exception:
+        pass
+    _last_stream_trim[stream] = now
+
 async def _publish_broker(stream: Optional[str], exchange: Optional[aio_pika.Exchange], routing_key: str, payload: Dict[str, Any]) -> None:
     body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
     if redis_publish_client and stream:
         try:
-            await redis_publish_client.xadd(stream, {"data": body})
+            kwargs: Dict[str, Any] = {}
+            if REPLAY_STRATEGY == "bounded" and REPLAY_MAXLEN > 0:
+                kwargs["maxlen"] = REPLAY_MAXLEN
+                kwargs["approximate"] = True
+            await redis_publish_client.xadd(stream, {"data": body}, **kwargs)
             metrics["broker_publish_total"] += 1
+            await _maybe_trim_stream(redis_publish_client, stream)
         except Exception:
             pass
     if exchange:

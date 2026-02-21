@@ -142,8 +142,8 @@ Key env vars:
 
 ---
 
-## Replay / Persistence Strategy (planned)
-Status: design-only (not implemented yet in main).
+## Replay / Persistence Strategy
+Status: implemented in gateway for Redis streams (branch `replay-strategy`).
 
 Goal: define replay behavior for brokered events without hard-coding retention.
 
