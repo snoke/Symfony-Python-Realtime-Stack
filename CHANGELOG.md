@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- (nothing yet)
+- MIT License file.
 
 ### Changed
 - Docs: clarify pre-release tagging for Composer and Docker (no stable/latest tags yet).
