@@ -7,7 +7,8 @@ import hashlib
 import hmac
 import logging
 import sys
-from typing import Any, Dict, List, Optional, Set
+from collections import deque
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple
 
 import aio_pika
 import httpx
@@ -61,8 +62,24 @@ WEBHOOK_RETRY_BASE_SECONDS = float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "0.5"
 WEBHOOK_TIMEOUT_SECONDS = float(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5"))
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
+BACKPRESSURE_STRATEGY = os.getenv("BACKPRESSURE_STRATEGY", "none").lower()
+BACKPRESSURE_PER_CONN_BUFFER = int(os.getenv("BACKPRESSURE_PER_CONN_BUFFER", "0"))
+BACKPRESSURE_GLOBAL_BUFFER = int(os.getenv("BACKPRESSURE_GLOBAL_BUFFER", "0"))
+BACKPRESSURE_MAX_INFLIGHT = int(os.getenv("BACKPRESSURE_MAX_INFLIGHT", "0"))
+BACKPRESSURE_DROP_POLICY = os.getenv("BACKPRESSURE_DROP_POLICY", "newest").lower()
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+if BACKPRESSURE_STRATEGY not in ("none", "drop", "close", "buffer"):
+    BACKPRESSURE_STRATEGY = "none"
+if BACKPRESSURE_DROP_POLICY not in ("oldest", "newest"):
+    BACKPRESSURE_DROP_POLICY = "newest"
+if BACKPRESSURE_PER_CONN_BUFFER < 0:
+    BACKPRESSURE_PER_CONN_BUFFER = 0
+if BACKPRESSURE_GLOBAL_BUFFER < 0:
+    BACKPRESSURE_GLOBAL_BUFFER = 0
+if BACKPRESSURE_MAX_INFLIGHT < 0:
+    BACKPRESSURE_MAX_INFLIGHT = 0
 
 logger = logging.getLogger("gateway")
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
@@ -79,6 +96,9 @@ metrics: Dict[str, int] = {
     "broker_publish_total": 0,
     "webhook_publish_total": 0,
     "webhook_publish_failed_total": 0,
+    "backpressure_dropped_total": 0,
+    "backpressure_closed_total": 0,
+    "backpressure_buffered_total": 0,
 }
 
 redis_publish_client: Optional[redis.Redis] = None
@@ -88,6 +108,9 @@ rabbit_publish_channel: Optional[aio_pika.Channel] = None
 rabbit_inbox_exchange: Optional[aio_pika.Exchange] = None
 rabbit_events_exchange: Optional[aio_pika.Exchange] = None
 http_client: Optional[httpx.AsyncClient] = None
+
+backpressure_inflight: Optional[asyncio.Semaphore] = None
+backpressure_buffer_slots: Optional[asyncio.Semaphore] = None
 
 def _log(event: str, **fields: Any) -> None:
     payload = {"event": event, **fields}
@@ -105,6 +128,9 @@ class Connection:
         self.connected_at = int(time.time())
         self._tokens = WS_RATE_LIMIT_BURST
         self._last_refill = time.time()
+        self.buffer: Deque[Tuple[Dict[str, Any], str]] = deque()
+        self.buffer_event = asyncio.Event()
+        self.buffer_task: Optional[asyncio.Task] = None
 
     def allow_message(self) -> bool:
         if WS_RATE_LIMIT_PER_SEC <= 0:
@@ -137,6 +163,83 @@ async def _send_to_subjects(subjects: List[str], payload: Any) -> int:
         except Exception:
             pass
     return sent
+
+async def _try_acquire_inflight() -> bool:
+    if not backpressure_inflight:
+        return True
+    try:
+        await asyncio.wait_for(backpressure_inflight.acquire(), timeout=0)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+async def _acquire_inflight() -> None:
+    if backpressure_inflight:
+        await backpressure_inflight.acquire()
+
+def _release_inflight() -> None:
+    if backpressure_inflight:
+        backpressure_inflight.release()
+
+async def _try_acquire_buffer_slot() -> bool:
+    if not backpressure_buffer_slots:
+        return True
+    try:
+        await asyncio.wait_for(backpressure_buffer_slots.acquire(), timeout=0)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+def _release_buffer_slot() -> None:
+    if backpressure_buffer_slots:
+        backpressure_buffer_slots.release()
+
+async def _publish_with_inflight(conn: Connection, data: Dict[str, Any], raw: str) -> None:
+    try:
+        await _publish_message_event(conn, data, raw)
+    finally:
+        _release_inflight()
+
+async def _drain_buffer(conn: Connection) -> None:
+    while True:
+        await conn.buffer_event.wait()
+        while conn.buffer:
+            await _acquire_inflight()
+            data, raw = conn.buffer.popleft()
+            _release_buffer_slot()
+            asyncio.create_task(_publish_with_inflight(conn, data, raw))
+        conn.buffer_event.clear()
+        if conn.id not in connections:
+            return
+
+async def _buffer_message(conn: Connection, data: Dict[str, Any], raw: str) -> None:
+    if BACKPRESSURE_PER_CONN_BUFFER <= 0:
+        metrics["backpressure_dropped_total"] += 1
+        return
+    if len(conn.buffer) >= BACKPRESSURE_PER_CONN_BUFFER:
+        if BACKPRESSURE_DROP_POLICY == "oldest" and conn.buffer:
+            conn.buffer.popleft()
+            _release_buffer_slot()
+            metrics["backpressure_dropped_total"] += 1
+        else:
+            metrics["backpressure_dropped_total"] += 1
+            return
+    if not await _try_acquire_buffer_slot():
+        if BACKPRESSURE_DROP_POLICY == "oldest" and conn.buffer:
+            conn.buffer.popleft()
+            _release_buffer_slot()
+            if not await _try_acquire_buffer_slot():
+                metrics["backpressure_dropped_total"] += 1
+                return
+            metrics["backpressure_dropped_total"] += 1
+        else:
+            metrics["backpressure_dropped_total"] += 1
+            return
+    conn.buffer.append((data, raw))
+    metrics["backpressure_buffered_total"] += 1
+    if not conn.buffer_task or conn.buffer_task.done():
+        conn.buffer_task = asyncio.create_task(_drain_buffer(conn))
+    conn.buffer_event.set()
 
 
 async def _post_webhook(event_type: str, payload: Dict[str, Any]) -> None:
@@ -336,6 +439,7 @@ async def _rabbit_outbox_consumer() -> None:
 async def startup_tasks() -> None:
     global redis_publish_client, presence_client, http_client
     global rabbit_publish_connection, rabbit_publish_channel, rabbit_inbox_exchange, rabbit_events_exchange
+    global backpressure_inflight, backpressure_buffer_slots
     if REDIS_DSN:
         redis_publish_client = redis.from_url(REDIS_DSN, decode_responses=True)
     if PRESENCE_REDIS_DSN:
@@ -359,6 +463,10 @@ async def startup_tasks() -> None:
         asyncio.create_task(_rabbit_outbox_consumer())
     if EVENTS_MODE in ("webhook", "both") and SYMFONY_WEBHOOK_URL:
         http_client = httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT_SECONDS)
+    if BACKPRESSURE_MAX_INFLIGHT > 0:
+        backpressure_inflight = asyncio.Semaphore(BACKPRESSURE_MAX_INFLIGHT)
+    if BACKPRESSURE_GLOBAL_BUFFER > 0:
+        backpressure_buffer_slots = asyncio.Semaphore(BACKPRESSURE_GLOBAL_BUFFER)
 
 @app.on_event("shutdown")
 async def shutdown_tasks() -> None:
@@ -414,7 +522,24 @@ async def ws_endpoint(websocket: WebSocket):
                 _log("ws_rate_limited", connection_id=conn.id, user_id=conn.user_id)
                 continue
             metrics["ws_messages_total"] += 1
-            asyncio.create_task(_publish_message_event(conn, data, msg))
+            if BACKPRESSURE_STRATEGY == "none":
+                asyncio.create_task(_publish_message_event(conn, data, msg))
+                continue
+            acquired = await _try_acquire_inflight()
+            if acquired:
+                asyncio.create_task(_publish_with_inflight(conn, data, msg))
+                continue
+            if BACKPRESSURE_STRATEGY == "drop":
+                metrics["backpressure_dropped_total"] += 1
+                _log("backpressure_drop", connection_id=conn.id, user_id=conn.user_id)
+                continue
+            if BACKPRESSURE_STRATEGY == "close":
+                metrics["backpressure_closed_total"] += 1
+                _log("backpressure_close", connection_id=conn.id, user_id=conn.user_id)
+                await websocket.close(code=1013)
+                break
+            if BACKPRESSURE_STRATEGY == "buffer":
+                await _buffer_message(conn, data, msg)
     except WebSocketDisconnect:
         pass
     finally:
@@ -427,6 +552,13 @@ async def ws_endpoint(websocket: WebSocket):
                 ids.discard(conn.id)
                 if not ids:
                     subjects_index.pop(s, None)
+        if conn.buffer_task and not conn.buffer_task.done():
+            conn.buffer_task.cancel()
+        dropped = len(conn.buffer)
+        if dropped:
+            conn.buffer.clear()
+            for _ in range(dropped):
+                _release_buffer_slot()
         asyncio.create_task(_presence_remove(conn))
         asyncio.create_task(_publish_connection_event("disconnected", conn))
 

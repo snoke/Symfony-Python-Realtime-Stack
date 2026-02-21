@@ -142,13 +142,14 @@ Key env vars:
 
 ---
 
-## Backpressure Strategy (planned)
-Status: design-only (not implemented yet in main).
+## Backpressure Strategy
+Status: implemented in gateway (branch `backpressure-strategy`).
 
 Goal: make backpressure policies configurable and swappable like `WS_MODE`.
 
 Strategies:
-- `drop`: reject messages when limits are hit (recommended default)
+- `none`: no backpressure logic (legacy behavior)
+- `drop`: drop messages when limits are hit
 - `close`: close connections under sustained pressure
 - `buffer`: bounded buffering (per-connection + global)
 
