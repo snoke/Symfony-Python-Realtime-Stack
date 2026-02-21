@@ -28,6 +28,8 @@ services:
       - WS_TRANSPORT_TYPE=redis_stream
       - WS_PRESENCE_TYPE=redis
       - WS_EVENTS_TYPE=redis_stream
+      - WS_TRACING_ENABLED=0
+      - WS_TRACING_EXPORTER=stdout
       - DEMO_INBOX_REDIS_DSN=redis://redis:6379
       - DEMO_INBOX_REDIS_STREAM=ws.inbox
       - WS_REDIS_DSN=redis://redis:6379
@@ -47,6 +49,8 @@ services:
     environment:
       - APP_ENV=dev
       - WS_MODE=core
+      - WS_TRACING_ENABLED=0
+      - WS_TRACING_EXPORTER=stdout
       - DEMO_INBOX_REDIS_DSN=redis://redis:6379
       - DEMO_INBOX_REDIS_STREAM=ws.inbox
       - WS_REDIS_DSN=redis://redis:6379
