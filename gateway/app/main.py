@@ -10,6 +10,13 @@ import random
 import sys
 from typing import Any, Dict, List, Optional, Set
 
+from opentelemetry import propagate, trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter as OtlpHttpSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+from opentelemetry.trace import SpanKind, format_trace_id
+
 import aio_pika
 import httpx
 import jwt
@@ -65,6 +72,9 @@ TRACING_TRACE_ID_FIELD = os.getenv("TRACING_TRACE_ID_FIELD", "trace_id")
 TRACING_HEADER_NAME = os.getenv("TRACING_HEADER_NAME", "X-Trace-Id")
 TRACING_SAMPLE_RATE = float(os.getenv("TRACING_SAMPLE_RATE", "1.0"))
 TRACING_EXPORTER = os.getenv("TRACING_EXPORTER", "stdout").lower()
+OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "gateway")
+OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+OTEL_EXPORTER_OTLP_PROTOCOL = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf").lower()
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
@@ -76,7 +86,7 @@ if TRACING_SAMPLE_RATE < 0:
     TRACING_SAMPLE_RATE = 0.0
 if TRACING_SAMPLE_RATE > 1:
     TRACING_SAMPLE_RATE = 1.0
-if TRACING_EXPORTER not in ("stdout", "none"):
+if TRACING_EXPORTER not in ("stdout", "otlp", "none"):
     TRACING_EXPORTER = "stdout"
 
 logger = logging.getLogger("gateway")
@@ -96,6 +106,9 @@ metrics: Dict[str, int] = {
     "webhook_publish_failed_total": 0,
 }
 
+tracer = trace.get_tracer("gateway")
+tracing_enabled = False
+
 redis_publish_client: Optional[redis.Redis] = None
 presence_client: Optional[redis.Redis] = None
 rabbit_publish_connection: Optional[aio_pika.RobustConnection] = None
@@ -111,12 +124,49 @@ def _log(event: str, **fields: Any) -> None:
     else:
         logger.info("%s %s", event, payload)
 
+def _create_otlp_exporter():
+    if OTEL_EXPORTER_OTLP_PROTOCOL.startswith("grpc"):
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter as OtlpGrpcSpanExporter
+
+        return OtlpGrpcSpanExporter(endpoint=OTEL_EXPORTER_OTLP_ENDPOINT, insecure=True)
+    return OtlpHttpSpanExporter(endpoint=OTEL_EXPORTER_OTLP_ENDPOINT)
+
+def _init_tracing() -> None:
+    global tracer, tracing_enabled
+    if TRACING_STRATEGY == "none" or TRACING_EXPORTER == "none":
+        return
+    resource = Resource.create({"service.name": OTEL_SERVICE_NAME})
+    provider = TracerProvider(resource=resource)
+    if TRACING_EXPORTER == "otlp" and OTEL_EXPORTER_OTLP_ENDPOINT:
+        exporter = _create_otlp_exporter()
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+    else:
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer("gateway")
+    tracing_enabled = True
+
 def _should_sample_trace() -> bool:
     if TRACING_SAMPLE_RATE <= 0:
         return False
     if TRACING_SAMPLE_RATE >= 1:
         return True
     return random.random() < TRACING_SAMPLE_RATE
+
+def _should_record(has_parent: bool) -> bool:
+    if TRACING_STRATEGY == "none":
+        return False
+    if TRACING_STRATEGY == "propagate" and not has_parent:
+        return False
+    return _should_sample_trace()
+
+def _extract_traceparent(data: Optional[Dict[str, Any]]) -> str:
+    if not data:
+        return ""
+    traceparent = data.get("traceparent")
+    if traceparent is None and isinstance(data.get("meta"), dict):
+        traceparent = data["meta"].get("traceparent")
+    return str(traceparent) if traceparent else ""
 
 def _extract_trace_id(data: Optional[Dict[str, Any]]) -> str:
     if not data:
@@ -126,14 +176,16 @@ def _extract_trace_id(data: Optional[Dict[str, Any]]) -> str:
         trace_id = data["meta"].get(TRACING_TRACE_ID_FIELD)
     return str(trace_id) if trace_id else ""
 
-def _select_trace_id(existing: str) -> str:
-    if TRACING_STRATEGY == "none":
-        return ""
-    if existing:
-        return existing if _should_sample_trace() else ""
-    if TRACING_STRATEGY == "full" and _should_sample_trace():
-        return uuid.uuid4().hex
-    return ""
+def _inject_trace_context(payload: Dict[str, Any]) -> None:
+    carrier: Dict[str, str] = {}
+    propagate.inject(carrier)
+    traceparent = carrier.get("traceparent")
+    if traceparent:
+        payload["traceparent"] = traceparent
+    span = trace.get_current_span()
+    if span and span.get_span_context().is_valid:
+        if TRACING_TRACE_ID_FIELD not in payload or not payload.get(TRACING_TRACE_ID_FIELD):
+            payload[TRACING_TRACE_ID_FIELD] = format_trace_id(span.get_span_context().trace_id)
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: str, subjects: List[str]):
@@ -142,6 +194,7 @@ class Connection:
         self.user_id = user_id
         self.subjects = set(subjects)
         self.connected_at = int(time.time())
+        self.traceparent = websocket.headers.get("traceparent", "")
         self._tokens = WS_RATE_LIMIT_BURST
         self._last_refill = time.time()
 
@@ -195,6 +248,12 @@ async def _post_webhook(event_type: str, payload: Dict[str, Any]) -> None:
     trace_id = payload.get(TRACING_TRACE_ID_FIELD)
     if trace_id and TRACING_HEADER_NAME:
         headers[TRACING_HEADER_NAME] = str(trace_id)
+    carrier: Dict[str, str] = {}
+    propagate.inject(carrier)
+    if "traceparent" in carrier:
+        headers["traceparent"] = carrier["traceparent"]
+    elif "traceparent" in payload:
+        headers["traceparent"] = str(payload["traceparent"])
     for attempt in range(WEBHOOK_RETRY_ATTEMPTS):
         try:
             await http_client.post(SYMFONY_WEBHOOK_URL, content=body, headers=headers)
@@ -243,7 +302,11 @@ async def _publish_event(event_type: str, stream: Optional[str], exchange: Optio
         await _post_webhook(event_type, payload)
 
 async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: str) -> None:
-    trace_id = _select_trace_id(_extract_trace_id(data))
+    traceparent = _extract_traceparent(data) or conn.traceparent
+    incoming_trace_id = _extract_trace_id(data)
+    has_parent = bool(traceparent or incoming_trace_id)
+    span_ctx = propagate.extract({"traceparent": traceparent}) if traceparent else None
+
     payload = {
         "type": "message_received",
         "connection_id": conn.id,
@@ -253,12 +316,32 @@ async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: st
         "message": data,
         "raw": raw,
     }
-    if trace_id:
-        payload[TRACING_TRACE_ID_FIELD] = trace_id
-    await _publish_event("message_received", REDIS_INBOX_STREAM, rabbit_inbox_exchange, RABBITMQ_INBOX_ROUTING_KEY, payload)
+
+    if traceparent:
+        payload["traceparent"] = traceparent
+    if incoming_trace_id:
+        payload[TRACING_TRACE_ID_FIELD] = incoming_trace_id
+
+    if tracing_enabled and _should_record(has_parent):
+        with tracer.start_as_current_span("ws.message", context=span_ctx, kind=SpanKind.SERVER) as span:
+            span.set_attribute("ws.connection_id", conn.id)
+            span.set_attribute("ws.user_id", conn.user_id)
+            span.set_attribute("ws.message_type", str(data.get("type", "")))
+            _inject_trace_context(payload)
+            await _publish_event(
+                "message_received",
+                REDIS_INBOX_STREAM,
+                rabbit_inbox_exchange,
+                RABBITMQ_INBOX_ROUTING_KEY,
+                payload,
+            )
+    else:
+        await _publish_event("message_received", REDIS_INBOX_STREAM, rabbit_inbox_exchange, RABBITMQ_INBOX_ROUTING_KEY, payload)
 
 async def _publish_connection_event(event_type: str, conn: Connection) -> None:
-    trace_id = _select_trace_id("")
+    traceparent = conn.traceparent
+    has_parent = bool(traceparent)
+    span_ctx = propagate.extract({"traceparent": traceparent}) if traceparent else None
     payload = {
         "type": event_type,
         "connection_id": conn.id,
@@ -266,9 +349,16 @@ async def _publish_connection_event(event_type: str, conn: Connection) -> None:
         "subjects": list(conn.subjects),
         "connected_at": conn.connected_at,
     }
-    if trace_id:
-        payload[TRACING_TRACE_ID_FIELD] = trace_id
-    await _publish_event(event_type, REDIS_EVENTS_STREAM, rabbit_events_exchange, RABBITMQ_EVENTS_ROUTING_KEY, payload)
+    if traceparent:
+        payload["traceparent"] = traceparent
+    if tracing_enabled and _should_record(has_parent):
+        with tracer.start_as_current_span(f"ws.{event_type}", context=span_ctx, kind=SpanKind.SERVER) as span:
+            span.set_attribute("ws.connection_id", conn.id)
+            span.set_attribute("ws.user_id", conn.user_id)
+            _inject_trace_context(payload)
+            await _publish_event(event_type, REDIS_EVENTS_STREAM, rabbit_events_exchange, RABBITMQ_EVENTS_ROUTING_KEY, payload)
+    else:
+        await _publish_event(event_type, REDIS_EVENTS_STREAM, rabbit_events_exchange, RABBITMQ_EVENTS_ROUTING_KEY, payload)
 
 async def _presence_set(conn: Connection) -> None:
     if not presence_client:
@@ -384,6 +474,7 @@ async def _rabbit_outbox_consumer() -> None:
 async def startup_tasks() -> None:
     global redis_publish_client, presence_client, http_client
     global rabbit_publish_connection, rabbit_publish_channel, rabbit_inbox_exchange, rabbit_events_exchange
+    _init_tracing()
     if REDIS_DSN:
         redis_publish_client = redis.from_url(REDIS_DSN, decode_responses=True)
     if PRESENCE_REDIS_DSN:

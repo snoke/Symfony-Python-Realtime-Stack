@@ -118,6 +118,7 @@ connected_at: 1700000000
 ```
 message: { type: chat, payload: hello world }
 raw: {"type":"chat","payload":"hello world"}
+traceparent: 00-... (optional, W3C)
 ```
 
 Edge cases:
@@ -143,20 +144,32 @@ Key env vars:
 ---
 
 ## Observability / Tracing Strategy
-Status: implemented in gateway (branch `observability-strategy`).
+Status: OTel base tracing implemented (branch `tracing`).
 
-Goal: consistent trace propagation across Gateway → Broker → Symfony.
+Goal: real spans + propagation across Gateway → Broker → Symfony.
 
 Strategies:
 - `none`: no tracing
-- `propagate`: forward trace IDs if present
-- `full`: always create and propagate trace IDs
+- `propagate`: forward trace headers if present
+- `full`: always create spans and propagate
 
-Policies:
+Gateway policies:
 - `TRACING_TRACE_ID_FIELD`
 - `TRACING_HEADER_NAME`
 - `TRACING_SAMPLE_RATE`
-- `TRACING_EXPORTER`
+- `TRACING_EXPORTER=stdout|otlp|none`
+- `OTEL_SERVICE_NAME`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_PROTOCOL`
+
+Symfony policies:
+- `WS_TRACING_ENABLED=0|1`
+- `WS_TRACING_EXPORTER=stdout|otlp|none`
+- `WS_TRACEPARENT_FIELD`
+- `WS_TRACE_ID_FIELD`
+- `OTEL_SERVICE_NAME`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_PROTOCOL`
 
 ---
 

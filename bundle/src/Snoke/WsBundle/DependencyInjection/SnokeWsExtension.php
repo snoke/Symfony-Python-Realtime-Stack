@@ -37,6 +37,7 @@ class SnokeWsExtension extends Extension
         $container->setParameter('snoke_ws.transport', $config['transport']);
         $container->setParameter('snoke_ws.presence', $config['presence']);
         $container->setParameter('snoke_ws.events', $config['events']);
+        $container->setParameter('snoke_ws.tracing', $config['tracing']);
         $container->setParameter('snoke_ws.subjects', $config['subjects']);
 
         $container->register('snoke_ws.http_publisher', 'Snoke\\WsBundle\\Service\\HttpPublisher')
@@ -74,9 +75,14 @@ class SnokeWsExtension extends Extension
 
         $container->setAlias('Snoke\\WsBundle\\Contract\\PresenceProviderInterface', $presenceService);
 
+        $container->register('snoke_ws.tracing', 'Snoke\\WsBundle\\Service\\TracingService')
+            ->addArgument('%snoke_ws.tracing%');
+        $container->setAlias('Snoke\\WsBundle\\Service\\TracingService', 'snoke_ws.tracing');
+
         $container->register('Snoke\\WsBundle\\Controller\\WebhookController', 'Snoke\\WsBundle\\Controller\\WebhookController')
             ->addArgument(new Reference('event_dispatcher'))
             ->addArgument('%snoke_ws.events%')
+            ->addArgument(new Reference('snoke_ws.tracing'))
             ->addTag('controller.service_arguments');
         $container->setAlias('snoke_ws.webhook_controller', 'Snoke\\WsBundle\\Controller\\WebhookController');
     }
