@@ -39,9 +39,6 @@ Event routing (EVENTS_MODE): `webhook | broker | both | none`
 3. Open / connect:
    - WebSocket: `ws://localhost:8180/ws`
    - API: `http://localhost:8180/api/ping`
-4. Core inbox consumer:
-   - `symfony-consumer` runs automatically in the core compose stack
-   - it reads `ws.inbox` and updates `/api/ws/last-message`
 4. Webhook enabled by default:
    ```
    SYMFONY_WEBHOOK_URL=http://symfony:8000/internal/ws/events
@@ -61,6 +58,33 @@ Event routing (EVENTS_MODE): `webhook | broker | both | none`
 3. Open / connect:
    - WebSocket: `ws://localhost:8180/ws`
    - API: `http://localhost:8180/api/ping`
+
+### Core stack details
+What you get in `core` mode:
+- Stateless gateway publishes events to broker(s)
+- Symfony acts as producer/consumer (no webhook round‑trip)
+- `symfony-consumer` service reads `ws.inbox` and updates `/api/ws/last-message`
+
+Core flow (default):
+1. Client → Gateway (WS message)
+2. Gateway → Broker (`ws.inbox` stream / queue)
+3. Symfony consumer → reads event → app logic
+
+Optional: run consumer manually (if you don't use the service):
+```
+docker compose -f docker-compose.yaml -f docker-compose.local.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
+```
+
+Useful env vars in core:
+- `WS_MODE=core`
+- `EVENTS_MODE=broker|both|none`
+- `WS_REDIS_DSN` / `WS_RABBITMQ_DSN`
+- `WS_CONSUMER_LOG_LEVEL`
+
+Verify core wiring quickly:
+1. Start the WS client.
+2. Send a demo message.
+3. Check `/api/ws/last-message` (updated by the consumer).
 
 ---
 
@@ -118,6 +142,8 @@ connected_at: 1700000000
 ```
 message: { type: chat, payload: hello world }
 raw: {"type":"chat","payload":"hello world"}
+ordering_key: room:123 (optional)
+ordering_strategy: topic|subject (optional)
 ```
 
 Edge cases:
@@ -139,6 +165,23 @@ Key env vars:
 - `SYMFONY_WEBHOOK_URL` + `SYMFONY_WEBHOOK_SECRET` (terminator)
 - `WS_GATEWAY_BASE_URL` + `WS_GATEWAY_API_KEY` (Symfony → gateway)
 - `WS_REDIS_DSN`, `WS_RABBITMQ_DSN`, … (core/broker)
+- `ORDERING_STRATEGY=none|topic|subject` (gateway)
+- `ORDERING_TOPIC_FIELD` (gateway, default: `topic`)
+- `ORDERING_SUBJECT_SOURCE=user|subject` (gateway)
+- `ORDERING_PARTITION_MODE=none|suffix` (gateway)
+- `ORDERING_PARTITION_MAX_LEN` (gateway)
+
+---
+
+## Ordering Strategy (core)
+You can choose how ordering keys are derived for brokered events:
+- `topic` strategy uses a message field (default `topic`, fallback to `type`).
+- `subject` strategy uses the connection subject (default `user:{id}`) or explicit message `subject`.
+- `none` disables ordering keys.
+
+Partitioning (optional):
+- If `ORDERING_PARTITION_MODE=suffix`, the gateway appends the ordering key to the broker stream/routing key.
+- Example: `ws.inbox.room:123` (Redis stream or RabbitMQ routing key).
 
 ---
 

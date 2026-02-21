@@ -6,6 +6,7 @@ import uuid
 import hashlib
 import hmac
 import logging
+import re
 import sys
 from typing import Any, Dict, List, Optional, Set
 
@@ -61,14 +62,28 @@ WEBHOOK_RETRY_BASE_SECONDS = float(os.getenv("WEBHOOK_RETRY_BASE_SECONDS", "0.5"
 WEBHOOK_TIMEOUT_SECONDS = float(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "5"))
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
+ORDERING_STRATEGY = os.getenv("ORDERING_STRATEGY", "none").lower()
+ORDERING_TOPIC_FIELD = os.getenv("ORDERING_TOPIC_FIELD", "topic")
+ORDERING_SUBJECT_SOURCE = os.getenv("ORDERING_SUBJECT_SOURCE", "user").lower()
+ORDERING_PARTITION_MODE = os.getenv("ORDERING_PARTITION_MODE", "none").lower()
+ORDERING_PARTITION_MAX_LEN = int(os.getenv("ORDERING_PARTITION_MAX_LEN", "64"))
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+if ORDERING_STRATEGY not in ("none", "topic", "subject"):
+    ORDERING_STRATEGY = "none"
+if ORDERING_SUBJECT_SOURCE not in ("user", "subject"):
+    ORDERING_SUBJECT_SOURCE = "user"
+if ORDERING_PARTITION_MODE not in ("none", "suffix"):
+    ORDERING_PARTITION_MODE = "none"
 
 logger = logging.getLogger("gateway")
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logger.level)
 logger.addHandler(handler)
+
+_ORDERING_KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._:-]")
 
 metrics: Dict[str, int] = {
     "ws_connections_total": 0,
@@ -95,6 +110,56 @@ def _log(event: str, **fields: Any) -> None:
         logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
     else:
         logger.info("%s %s", event, payload)
+
+def _normalize_ordering_key(raw_key: str) -> str:
+    key = (raw_key or "").strip()
+    if not key:
+        return ""
+    raw_bytes = key.encode("utf-8")
+    if ORDERING_PARTITION_MAX_LEN > 0 and len(key) > ORDERING_PARTITION_MAX_LEN:
+        key = hashlib.sha1(raw_bytes).hexdigest()
+    key = _ORDERING_KEY_SAFE_RE.sub("_", key)
+    if not key:
+        key = hashlib.sha1(raw_bytes).hexdigest()
+    return key
+
+def _derive_ordering_key(conn: "Connection", data: Optional[Dict[str, Any]]) -> str:
+    if ORDERING_STRATEGY == "none":
+        return ""
+    if ORDERING_STRATEGY == "topic":
+        if not data:
+            return ""
+        key = data.get(ORDERING_TOPIC_FIELD)
+        if key is None and isinstance(data.get("meta"), dict):
+            key = data["meta"].get(ORDERING_TOPIC_FIELD)
+        if key is None:
+            key = data.get("type")
+        return str(key) if key else ""
+    if ORDERING_STRATEGY == "subject":
+        key = None
+        if data:
+            if isinstance(data.get("subject"), str):
+                key = data.get("subject")
+            elif isinstance(data.get("subjects"), list) and data.get("subjects"):
+                key = data.get("subjects")[0]
+        if not key:
+            if ORDERING_SUBJECT_SOURCE == "subject" and conn.subjects:
+                key = sorted(conn.subjects)[0]
+            else:
+                key = conn.user_id
+        return str(key) if key else ""
+    return ""
+
+def _apply_ordering_partition(stream: Optional[str], routing_key: str, ordering_key: str) -> tuple[Optional[str], str]:
+    if ORDERING_PARTITION_MODE != "suffix" or not ordering_key:
+        return stream, routing_key
+    safe_key = _normalize_ordering_key(ordering_key)
+    if not safe_key:
+        return stream, routing_key
+    if stream:
+        stream = f"{stream}.{safe_key}"
+    routing_key = f"{routing_key}.{safe_key}"
+    return stream, routing_key
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: str, subjects: List[str]):
@@ -194,13 +259,22 @@ async def _publish_broker(stream: Optional[str], exchange: Optional[aio_pika.Exc
         except Exception:
             pass
 
-async def _publish_event(event_type: str, stream: Optional[str], exchange: Optional[aio_pika.Exchange], routing_key: str, payload: Dict[str, Any]) -> None:
+async def _publish_event(
+    event_type: str,
+    stream: Optional[str],
+    exchange: Optional[aio_pika.Exchange],
+    routing_key: str,
+    payload: Dict[str, Any],
+    ordering_key: str = "",
+) -> None:
+    stream, routing_key = _apply_ordering_partition(stream, routing_key, ordering_key)
     if EVENTS_MODE in ("broker", "both"):
         await _publish_broker(stream, exchange, routing_key, payload)
     if EVENTS_MODE in ("webhook", "both"):
         await _post_webhook(event_type, payload)
 
 async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: str) -> None:
+    ordering_key = _derive_ordering_key(conn, data)
     payload = {
         "type": "message_received",
         "connection_id": conn.id,
@@ -210,7 +284,17 @@ async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: st
         "message": data,
         "raw": raw,
     }
-    await _publish_event("message_received", REDIS_INBOX_STREAM, rabbit_inbox_exchange, RABBITMQ_INBOX_ROUTING_KEY, payload)
+    if ordering_key:
+        payload["ordering_key"] = ordering_key
+        payload["ordering_strategy"] = ORDERING_STRATEGY
+    await _publish_event(
+        "message_received",
+        REDIS_INBOX_STREAM,
+        rabbit_inbox_exchange,
+        RABBITMQ_INBOX_ROUTING_KEY,
+        payload,
+        ordering_key=ordering_key,
+    )
 
 async def _publish_connection_event(event_type: str, conn: Connection) -> None:
     payload = {
