@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 import random
+import re
 import sys
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -103,6 +104,11 @@ REPLAY_IDEMPOTENCY_PAYLOAD_FIELD = os.getenv("REPLAY_IDEMPOTENCY_PAYLOAD_FIELD",
 REPLAY_AUDIT_LOG = os.getenv("REPLAY_AUDIT_LOG", "1").lower() in ("1", "true", "yes", "on")
 WS_RATE_LIMIT_PER_SEC = float(os.getenv("WS_RATE_LIMIT_PER_SEC", "10"))
 WS_RATE_LIMIT_BURST = float(os.getenv("WS_RATE_LIMIT_BURST", "20"))
+ORDERING_STRATEGY = os.getenv("ORDERING_STRATEGY", "none").lower()
+ORDERING_TOPIC_FIELD = os.getenv("ORDERING_TOPIC_FIELD", "topic")
+ORDERING_SUBJECT_SOURCE = os.getenv("ORDERING_SUBJECT_SOURCE", "user").lower()
+ORDERING_PARTITION_MODE = os.getenv("ORDERING_PARTITION_MODE", "none").lower()
+ORDERING_PARTITION_MAX_LEN = int(os.getenv("ORDERING_PARTITION_MAX_LEN", "64"))
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -134,12 +140,20 @@ if REPLAY_IDEMPOTENCY_STRATEGY not in ("none", "in_memory", "redis"):
     REPLAY_IDEMPOTENCY_STRATEGY = "none"
 if REPLAY_IDEMPOTENCY_TTL_SECONDS < 0:
     REPLAY_IDEMPOTENCY_TTL_SECONDS = 0
+if ORDERING_STRATEGY not in ("none", "topic", "subject"):
+    ORDERING_STRATEGY = "none"
+if ORDERING_SUBJECT_SOURCE not in ("user", "subject"):
+    ORDERING_SUBJECT_SOURCE = "user"
+if ORDERING_PARTITION_MODE not in ("none", "suffix"):
+    ORDERING_PARTITION_MODE = "none"
 
 logger = logging.getLogger("gateway")
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logger.level)
 logger.addHandler(handler)
+
+_ORDERING_KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._:-]")
 
 metrics: Dict[str, int] = {
     "ws_connections_total": 0,
@@ -362,6 +376,55 @@ def _build_idempotency_store() -> NullIdempotencyStore | InMemoryIdempotencyStor
 
 replay_rate_limiter = _build_rate_limiter()
 replay_idempotency_store = _build_idempotency_store()
+def _normalize_ordering_key(raw_key: str) -> str:
+    key = (raw_key or "").strip()
+    if not key:
+        return ""
+    raw_bytes = key.encode("utf-8")
+    if ORDERING_PARTITION_MAX_LEN > 0 and len(key) > ORDERING_PARTITION_MAX_LEN:
+        key = hashlib.sha1(raw_bytes).hexdigest()
+    key = _ORDERING_KEY_SAFE_RE.sub("_", key)
+    if not key:
+        key = hashlib.sha1(raw_bytes).hexdigest()
+    return key
+
+def _derive_ordering_key(conn: "Connection", data: Optional[Dict[str, Any]]) -> str:
+    if ORDERING_STRATEGY == "none":
+        return ""
+    if ORDERING_STRATEGY == "topic":
+        if not data:
+            return ""
+        key = data.get(ORDERING_TOPIC_FIELD)
+        if key is None and isinstance(data.get("meta"), dict):
+            key = data["meta"].get(ORDERING_TOPIC_FIELD)
+        if key is None:
+            key = data.get("type")
+        return str(key) if key else ""
+    if ORDERING_STRATEGY == "subject":
+        key = None
+        if data:
+            if isinstance(data.get("subject"), str):
+                key = data.get("subject")
+            elif isinstance(data.get("subjects"), list) and data.get("subjects"):
+                key = data.get("subjects")[0]
+        if not key:
+            if ORDERING_SUBJECT_SOURCE == "subject" and conn.subjects:
+                key = sorted(conn.subjects)[0]
+            else:
+                key = conn.user_id
+        return str(key) if key else ""
+    return ""
+
+def _apply_ordering_partition(stream: Optional[str], routing_key: str, ordering_key: str) -> tuple[Optional[str], str]:
+    if ORDERING_PARTITION_MODE != "suffix" or not ordering_key:
+        return stream, routing_key
+    safe_key = _normalize_ordering_key(ordering_key)
+    if not safe_key:
+        return stream, routing_key
+    if stream:
+        stream = f"{stream}.{safe_key}"
+    routing_key = f"{routing_key}.{safe_key}"
+    return stream, routing_key
 
 class Connection:
     def __init__(self, websocket: WebSocket, user_id: str, subjects: List[str]):
@@ -503,7 +566,15 @@ async def _publish_broker(stream: Optional[str], exchange: Optional[aio_pika.Exc
         except Exception:
             pass
 
-async def _publish_event(event_type: str, stream: Optional[str], exchange: Optional[aio_pika.Exchange], routing_key: str, payload: Dict[str, Any]) -> None:
+async def _publish_event(
+    event_type: str,
+    stream: Optional[str],
+    exchange: Optional[aio_pika.Exchange],
+    routing_key: str,
+    payload: Dict[str, Any],
+    ordering_key: str = "",
+) -> None:
+    stream, routing_key = _apply_ordering_partition(stream, routing_key, ordering_key)
     if EVENTS_MODE in ("broker", "both"):
         if tracing_enabled and _should_record(trace.get_current_span().get_span_context().is_valid):
             with tracer.start_as_current_span("broker.publish", kind=SpanKind.PRODUCER) as span:
@@ -526,7 +597,7 @@ async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: st
     incoming_trace_id = _extract_trace_id(data)
     has_parent = bool(traceparent or incoming_trace_id)
     span_ctx = propagate.extract({"traceparent": traceparent}) if traceparent else None
-
+    ordering_key = _derive_ordering_key(conn, data)
     payload = {
         "type": "message_received",
         "connection_id": conn.id,
@@ -536,11 +607,13 @@ async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: st
         "message": data,
         "raw": raw,
     }
-
     if traceparent:
         payload["traceparent"] = traceparent
     if incoming_trace_id:
         payload[TRACING_TRACE_ID_FIELD] = incoming_trace_id
+    if ordering_key:
+        payload["ordering_key"] = ordering_key
+        payload["ordering_strategy"] = ORDERING_STRATEGY
 
     if tracing_enabled and _should_record(has_parent):
         with tracer.start_as_current_span("ws.message", context=span_ctx, kind=SpanKind.SERVER) as span:
@@ -554,9 +627,17 @@ async def _publish_message_event(conn: Connection, data: Dict[str, Any], raw: st
                 rabbit_inbox_exchange,
                 RABBITMQ_INBOX_ROUTING_KEY,
                 payload,
+                ordering_key=ordering_key,
             )
     else:
-        await _publish_event("message_received", REDIS_INBOX_STREAM, rabbit_inbox_exchange, RABBITMQ_INBOX_ROUTING_KEY, payload)
+        await _publish_event(
+            "message_received",
+            REDIS_INBOX_STREAM,
+            rabbit_inbox_exchange,
+            RABBITMQ_INBOX_ROUTING_KEY,
+            payload,
+            ordering_key=ordering_key,
+        )
 
 async def _publish_connection_event(event_type: str, conn: Connection) -> None:
     traceparent = conn.traceparent
