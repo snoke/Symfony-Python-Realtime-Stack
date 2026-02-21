@@ -142,6 +142,24 @@ Key env vars:
 
 ---
 
+## Backpressure Strategy (planned)
+Status: design-only (not implemented yet in main).
+
+Goal: make backpressure policies configurable and swappable like `WS_MODE`.
+
+Strategies:
+- `drop`: reject messages when limits are hit (recommended default)
+- `close`: close connections under sustained pressure
+- `buffer`: bounded buffering (per-connection + global)
+
+Policies:
+- `BACKPRESSURE_PER_CONN_BUFFER`
+- `BACKPRESSURE_GLOBAL_BUFFER`
+- `BACKPRESSURE_MAX_INFLIGHT`
+- `BACKPRESSURE_DROP_POLICY=oldest|newest`
+
+---
+
 ## Production Quickstart
 1. Set env: `cp .env.example .env`
 2. Create ACME storage:
