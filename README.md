@@ -101,6 +101,9 @@ What you get in `core` mode:
 - Symfony acts as producer/consumer (no webhook round‑trip)
 - `symfony-consumer` service reads `ws.inbox` and updates `/api/ws/last-message`
 
+If `symfony-consumer` tries to pull an image, make sure it uses `build: ./symfony`
+so it reuses the local Symfony image.
+
 Core flow (default):
 1. Client → Gateway (WS message)
 2. Gateway → Broker (`ws.inbox` stream / queue)
@@ -108,7 +111,7 @@ Core flow (default):
 
 Optional: run consumer manually (if you don't use the service):
 ```
-docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
+docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/console ws:consume
 ```
 
 Useful env vars in core:
@@ -121,6 +124,9 @@ Verify core wiring quickly:
 1. Start the WS client.
 2. Send a demo message.
 3. Check `/api/ws/last-message` (updated by the consumer).
+
+Demo mapping (core): `message_received` → `chat` is handled by `ChatDemoListener`
+(publisher uses subjects like `user:{id}`).
 
 ---
 
@@ -177,6 +183,24 @@ Edge cases:
 
 ## Symfony Config Overview
 Mode + transport/presence/events configurable in `symfony/config/packages/snoke_ws.yaml`
+
+Minimal example (make sure `subjects` is set):
+```
+snoke_ws:
+  subjects:
+    - "user:{userId}"
+```
+
+Token helper (service, opt-in):
+```
+use Snoke\WsBundle\Service\DemoTokenService;
+
+public function token(DemoTokenService $tokens): Response
+{
+    [$jwt, $error] = $tokens->issue('42');
+    // return Response/JsonResponse with $jwt or $error
+}
+```
 
 Key env vars:
 - `WS_MODE=terminator|core`

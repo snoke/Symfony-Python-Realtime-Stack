@@ -1,17 +1,16 @@
 <?php
 
-namespace App\Service;
+namespace Snoke\WsBundle\Service;
 
 use Predis\Client;
 use Psr\Log\LoggerInterface;
 use Snoke\WsBundle\Event\WebsocketConnectionClosedEvent;
 use Snoke\WsBundle\Event\WebsocketConnectionEstablishedEvent;
 use Snoke\WsBundle\Event\WebsocketMessageReceivedEvent;
-use Snoke\WsBundle\Service\TracingService;
 use OpenTelemetry\API\Trace\SpanKind;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
-class WsInboxConsumer
+class InboxConsumer
 {
     private int $minLevel;
 

@@ -127,6 +127,17 @@ class SnokeWsExtension extends Extension
             ->addArgument('%snoke_ws.tracing%');
         $container->setAlias('Snoke\\WsBundle\\Service\\TracingService', 'snoke_ws.tracing');
 
+        $container->register('snoke_ws.inbox_consumer', 'Snoke\\WsBundle\\Service\\InboxConsumer')
+            ->addArgument(new Reference('event_dispatcher'))
+            ->addArgument(new Reference('logger'))
+            ->addArgument(new Reference('snoke_ws.tracing'));
+
+        $container->register('snoke_ws.consume_command', 'Snoke\\WsBundle\\Command\\WsConsumeCommand')
+            ->addArgument(new Reference('snoke_ws.inbox_consumer'))
+            ->addTag('console.command');
+
+        $container->register('snoke_ws.demo_token_service', 'Snoke\\WsBundle\\Service\\DemoTokenService');
+
         $container->register('Snoke\\WsBundle\\Controller\\WebhookController', 'Snoke\\WsBundle\\Controller\\WebhookController')
             ->addArgument(new Reference('event_dispatcher'))
             ->addArgument('%snoke_ws.events%')

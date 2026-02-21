@@ -77,11 +77,11 @@ services:
       - WS_REDIS_EVENTS_STREAM=ws.events
       - "WS_REDIS_PREFIX=presence:"
       - WS_CONSUMER_LOG_LEVEL=info
-    command: ["php", "bin/ws_inbox_consumer.php"]
+    command: ["php", "bin/console", "ws:consume"]
     depends_on:
       - redis
     healthcheck:
-      test: ["CMD-SHELL", "grep -q ws_inbox_consumer.php /proc/1/cmdline"]
+      test: ["CMD-SHELL", "grep -q ws:consume /proc/1/cmdline"]
       interval: 10s
       timeout: 3s
       retries: 5
