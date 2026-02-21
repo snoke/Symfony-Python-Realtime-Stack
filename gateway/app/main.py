@@ -44,10 +44,15 @@ RABBITMQ_DSN = os.getenv("RABBITMQ_DSN", "")
 RABBITMQ_QUEUE = os.getenv("RABBITMQ_QUEUE", "ws.outbox")
 RABBITMQ_EXCHANGE = os.getenv("RABBITMQ_EXCHANGE", "ws.outbox")
 RABBITMQ_ROUTING_KEY = os.getenv("RABBITMQ_ROUTING_KEY", "ws.outbox")
+RABBITMQ_QUEUE_TTL_MS = int(os.getenv("RABBITMQ_QUEUE_TTL_MS", "0"))
 RABBITMQ_INBOX_EXCHANGE = os.getenv("RABBITMQ_INBOX_EXCHANGE", "ws.inbox")
 RABBITMQ_INBOX_ROUTING_KEY = os.getenv("RABBITMQ_INBOX_ROUTING_KEY", "ws.inbox")
+RABBITMQ_INBOX_QUEUE = os.getenv("RABBITMQ_INBOX_QUEUE", "")
+RABBITMQ_INBOX_QUEUE_TTL_MS = int(os.getenv("RABBITMQ_INBOX_QUEUE_TTL_MS", "0"))
 RABBITMQ_EVENTS_EXCHANGE = os.getenv("RABBITMQ_EVENTS_EXCHANGE", "ws.events")
 RABBITMQ_EVENTS_ROUTING_KEY = os.getenv("RABBITMQ_EVENTS_ROUTING_KEY", "ws.events")
+RABBITMQ_EVENTS_QUEUE = os.getenv("RABBITMQ_EVENTS_QUEUE", "")
+RABBITMQ_EVENTS_QUEUE_TTL_MS = int(os.getenv("RABBITMQ_EVENTS_QUEUE_TTL_MS", "0"))
 RABBITMQ_DLQ_QUEUE = os.getenv("RABBITMQ_DLQ_QUEUE", "ws.dlq")
 RABBITMQ_DLQ_EXCHANGE = os.getenv("RABBITMQ_DLQ_EXCHANGE", "ws.dlq")
 REDIS_DLQ_STREAM = os.getenv("REDIS_DLQ_STREAM", "ws.dlq")
@@ -191,6 +196,16 @@ async def _push_rabbit_dlq(channel: aio_pika.Channel, reason: str, raw: bytes) -
         await dlq_exchange.publish(message, routing_key=RABBITMQ_DLQ_QUEUE)
     except Exception:
         pass
+
+def _rabbit_queue_args(ttl_ms: int) -> Dict[str, Any]:
+    args: Dict[str, Any] = {}
+    if ttl_ms > 0:
+        args["x-message-ttl"] = ttl_ms
+    if RABBITMQ_DLQ_EXCHANGE:
+        args["x-dead-letter-exchange"] = RABBITMQ_DLQ_EXCHANGE
+        if RABBITMQ_DLQ_QUEUE:
+            args["x-dead-letter-routing-key"] = RABBITMQ_DLQ_QUEUE
+    return args
 
 async def _maybe_trim_stream(client: redis.Redis, stream: str) -> None:
     if REPLAY_STRATEGY != "bounded":
@@ -351,7 +366,11 @@ async def _rabbit_outbox_consumer() -> None:
                 dlq_exchange = await channel.declare_exchange(RABBITMQ_DLQ_EXCHANGE, ExchangeType.DIRECT, durable=True)
                 dlq_queue = await channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
                 await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
-                queue = await channel.declare_queue(RABBITMQ_QUEUE, durable=True)
+                queue = await channel.declare_queue(
+                    RABBITMQ_QUEUE,
+                    durable=True,
+                    arguments=_rabbit_queue_args(RABBITMQ_QUEUE_TTL_MS),
+                )
                 await queue.bind(exchange, routing_key=RABBITMQ_ROUTING_KEY)
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
@@ -389,6 +408,28 @@ async def startup_tasks() -> None:
             ExchangeType.DIRECT,
             durable=True,
         )
+        if RABBITMQ_DLQ_EXCHANGE and RABBITMQ_DLQ_QUEUE:
+            dlq_exchange = await rabbit_publish_channel.declare_exchange(
+                RABBITMQ_DLQ_EXCHANGE,
+                ExchangeType.DIRECT,
+                durable=True,
+            )
+            dlq_queue = await rabbit_publish_channel.declare_queue(RABBITMQ_DLQ_QUEUE, durable=True)
+            await dlq_queue.bind(dlq_exchange, routing_key=RABBITMQ_DLQ_QUEUE)
+        if RABBITMQ_INBOX_QUEUE and rabbit_inbox_exchange:
+            inbox_queue = await rabbit_publish_channel.declare_queue(
+                RABBITMQ_INBOX_QUEUE,
+                durable=True,
+                arguments=_rabbit_queue_args(RABBITMQ_INBOX_QUEUE_TTL_MS),
+            )
+            await inbox_queue.bind(rabbit_inbox_exchange, routing_key=RABBITMQ_INBOX_ROUTING_KEY)
+        if RABBITMQ_EVENTS_QUEUE and rabbit_events_exchange:
+            events_queue = await rabbit_publish_channel.declare_queue(
+                RABBITMQ_EVENTS_QUEUE,
+                durable=True,
+                arguments=_rabbit_queue_args(RABBITMQ_EVENTS_QUEUE_TTL_MS),
+            )
+            await events_queue.bind(rabbit_events_exchange, routing_key=RABBITMQ_EVENTS_ROUTING_KEY)
     if REDIS_DSN:
         asyncio.create_task(_redis_outbox_consumer())
     if RABBITMQ_DSN:

@@ -143,7 +143,7 @@ Key env vars:
 ---
 
 ## Replay / Persistence Strategy
-Status: implemented in gateway for Redis streams (branch `replay-strategy`).
+Status: implemented for Redis streams + RabbitMQ minimal replay (branch `replay-strategy`).
 
 Goal: define replay behavior for brokered events without hard-coding retention.
 
@@ -156,6 +156,13 @@ Policies:
 - `REPLAY_RETENTION_SECONDS`
 - `REPLAY_MAXLEN`
 - `REPLAY_SNAPSHOT_SECONDS`
+
+RabbitMQ minimal replay (durable + TTL/DLX):
+- `RABBITMQ_QUEUE_TTL_MS`
+- `RABBITMQ_INBOX_QUEUE`
+- `RABBITMQ_INBOX_QUEUE_TTL_MS`
+- `RABBITMQ_EVENTS_QUEUE`
+- `RABBITMQ_EVENTS_QUEUE_TTL_MS`
 
 ---
 
