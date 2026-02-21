@@ -39,7 +39,7 @@ You only switch the compose files.
    ```
 3. Core mode:
    ```
-   docker compose -f docker-compose.yaml -f docker-compose.terminator.yaml -f docker-compose.realtime-core.yaml up --build
+   docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml up --build
    ```
 4. Open / connect:
    - WebSocket: `ws://localhost:8180/ws`
@@ -63,7 +63,7 @@ Core flow (default):
 
 Optional: run consumer manually (if you don't use the service):
 ```
-docker compose -f docker-compose.yaml -f docker-compose.terminator.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
+docker compose -f docker-compose.yaml -f docker-compose.realtime-core.yaml exec -T symfony php bin/ws_inbox_consumer.php
 ```
 
 Useful env vars in core:

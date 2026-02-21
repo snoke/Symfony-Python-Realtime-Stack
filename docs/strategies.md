@@ -45,7 +45,7 @@ Symfony policies:
 1. Start the core stack (with realtime core enabled).
 2. Runtime deps check (gateway + symfony):
    ```
-   COMPOSE_FILES="docker-compose.yaml docker-compose.terminator.yaml docker-compose.realtime-core.yaml" \
+   COMPOSE_FILES="docker-compose.yaml docker-compose.realtime-core.yaml" \
      ./scripts/tracing_runtime_check.sh
    ```
 3. End-to-end propagation check (traceparent + trace_id):

@@ -7,7 +7,7 @@ DEMO_API_URL=${DEMO_API_URL:-"http://localhost:8180/api/ws/last-message"}
 DEMO_API_KEY=${DEMO_API_KEY:-"dev-demo-key"}
 TRACEPARENT=${TRACEPARENT:-"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
 TRACE_ID=${TRACE_ID:-"4bf92f3577b34da6a3ce929d0e0e4736"}
-COMPOSE_FILES=${COMPOSE_FILES:-"docker-compose.yaml docker-compose.terminator.yaml docker-compose.realtime-core.yaml"}
+COMPOSE_FILES=${COMPOSE_FILES:-"docker-compose.yaml docker-compose.realtime-core.yaml"}
 
 if [[ ! -f ".venv/bin/activate" ]]; then
   echo "Missing .venv. Run: python3 -m venv .venv && source .venv/bin/activate && pip install -r scripts/requirements.txt"

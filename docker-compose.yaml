@@ -14,19 +14,16 @@ services:
   gateway:
     build: ./gateway
     environment:
-      - WS_MODE=terminator
       - JWT_ALG=RS256
       - JWT_USER_ID_CLAIM=user_id
       - JWT_PUBLIC_KEY=
       - JWT_JWKS_URL=
-      - SYMFONY_WEBHOOK_URL=http://symfony:8000/internal/ws/events
-      - SYMFONY_WEBHOOK_SECRET=
-      - WEBHOOK_RETRY_ATTEMPTS=3
-      - WEBHOOK_RETRY_BASE_SECONDS=0.5
-      - WEBHOOK_TIMEOUT_SECONDS=5
       - GATEWAY_API_KEY=dev-key
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
+      - JWT_PUBLIC_KEY_FILE=/run/keys/dev_public.pem
+    volumes:
+      - ./scripts/keys/dev_public.pem:/run/keys/dev_public.pem:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()\""]
       interval: 10s
@@ -43,14 +40,8 @@ services:
       dockerfile: symfony/Dockerfile
     environment:
       - APP_ENV=dev
-      - WS_MODE=terminator
-      - WS_TRANSPORT_TYPE=http
-      - WS_PRESENCE_TYPE=http
       - WS_PRESENCE_INTERPRETATION_STRATEGY=none
       - WS_PRESENCE_WRITER_TYPE=none
-      - WS_EVENTS_TYPE=webhook
-      - WS_GATEWAY_BASE_URL=http://gateway:8000
-      - WS_GATEWAY_API_KEY=dev-key
       - WS_TRACING_ENABLED=0
       - WS_TRACING_EXPORTER=stdout
       - OTEL_SERVICE_NAME=symfony
@@ -58,6 +49,10 @@ services:
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - WS_TRACEPARENT_FIELD=traceparent
       - WS_TRACE_ID_FIELD=trace_id
+      - DEMO_API_KEY=dev-demo-key
+      - DEMO_JWT_PRIVATE_KEY_FILE=/run/keys/dev_private.pem
+    volumes:
+      - ./scripts/keys/dev_private.pem:/run/keys/dev_private.pem:ro
     labels:
       - traefik.http.routers.api.rule=PathPrefix(`/api`) || PathPrefix(`/internal/ws`)
       - traefik.http.routers.api.entrypoints=web
