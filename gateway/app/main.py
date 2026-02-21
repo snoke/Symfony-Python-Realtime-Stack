@@ -1039,30 +1039,30 @@ async def ws_endpoint(websocket: WebSocket):
                 continue
             if not conn.allow_message():
                 await websocket.send_json({"type": "rate_limited"})
-            metrics["ws_rate_limited_total"] += 1
-            _log("ws_rate_limited", connection_id=conn.id, user_id=conn.user_id)
-            continue
-        metrics["ws_messages_total"] += 1
-        if PRESENCE_STRATEGY in ("ttl", "heartbeat") and PRESENCE_REFRESH_ON_MESSAGE:
-            asyncio.create_task(_presence_refresh(conn))
-        if BACKPRESSURE_STRATEGY == "none":
-            asyncio.create_task(_publish_message_event(conn, data, msg))
-            continue
-        acquired = await _try_acquire_inflight()
-        if acquired:
-            asyncio.create_task(_publish_with_inflight(conn, data, msg))
-            continue
-        if BACKPRESSURE_STRATEGY == "drop":
-            metrics["backpressure_dropped_total"] += 1
-            _log("backpressure_drop", connection_id=conn.id, user_id=conn.user_id)
-            continue
-        if BACKPRESSURE_STRATEGY == "close":
-            metrics["backpressure_closed_total"] += 1
-            _log("backpressure_close", connection_id=conn.id, user_id=conn.user_id)
-            await websocket.close(code=1013)
-            break
-        if BACKPRESSURE_STRATEGY == "buffer":
-            await _buffer_message(conn, data, msg)
+                metrics["ws_rate_limited_total"] += 1
+                _log("ws_rate_limited", connection_id=conn.id, user_id=conn.user_id)
+                continue
+            metrics["ws_messages_total"] += 1
+            if PRESENCE_STRATEGY in ("ttl", "heartbeat") and PRESENCE_REFRESH_ON_MESSAGE:
+                asyncio.create_task(_presence_refresh(conn))
+            if BACKPRESSURE_STRATEGY == "none":
+                asyncio.create_task(_publish_message_event(conn, data, msg))
+                continue
+            acquired = await _try_acquire_inflight()
+            if acquired:
+                asyncio.create_task(_publish_with_inflight(conn, data, msg))
+                continue
+            if BACKPRESSURE_STRATEGY == "drop":
+                metrics["backpressure_dropped_total"] += 1
+                _log("backpressure_drop", connection_id=conn.id, user_id=conn.user_id)
+                continue
+            if BACKPRESSURE_STRATEGY == "close":
+                metrics["backpressure_closed_total"] += 1
+                _log("backpressure_close", connection_id=conn.id, user_id=conn.user_id)
+                await websocket.close(code=1013)
+                break
+            if BACKPRESSURE_STRATEGY == "buffer":
+                await _buffer_message(conn, data, msg)
     except WebSocketDisconnect:
         pass
     finally:
