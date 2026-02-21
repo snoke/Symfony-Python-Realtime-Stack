@@ -142,6 +142,23 @@ Key env vars:
 
 ---
 
+## Replay / Persistence Strategy (planned)
+Status: design-only (not implemented yet in main).
+
+Goal: define replay behavior for brokered events without hard-coding retention.
+
+Strategies:
+- `none`: no replay guarantees
+- `bounded`: replay within a bounded window (stream maxlen / TTL)
+- `durable`: external persistence for long-term replay
+
+Policies:
+- `REPLAY_RETENTION_SECONDS`
+- `REPLAY_MAXLEN`
+- `REPLAY_SNAPSHOT_SECONDS`
+
+---
+
 ## Production Quickstart
 1. Set env: `cp .env.example .env`
 2. Create ACME storage:
