@@ -70,37 +70,47 @@ impl ConnectionManager {
     }
 
     pub(crate) async fn send_to_subjects(&self, subjects: &[String], payload: &Value) -> usize {
-        let mut targets = HashSet::new();
-        let state = self.inner.read().await;
-        for subject in subjects {
-            if let Some(ids) = state.subjects.get(subject) {
-                for id in ids {
-                    targets.insert(id.clone());
-                }
-            }
-        }
         let message = json!({"type": "event", "payload": payload});
         let text = match serde_json::to_string(&message) {
             Ok(text) => text,
             Err(_) => return 0,
         };
-        let mut sent = 0;
-        for id in targets {
-            if let Some(entry) = state.connections.get(&id) {
-                if entry.sender.send(Message::Text(text.clone())).is_ok() {
-                    sent += 1;
+        let senders = {
+            let state = self.inner.read().await;
+            let mut targets = HashSet::new();
+            for subject in subjects {
+                if let Some(ids) = state.subjects.get(subject) {
+                    for id in ids {
+                        targets.insert(id.clone());
+                    }
                 }
+            }
+            let mut senders = Vec::with_capacity(targets.len());
+            for id in targets {
+                if let Some(entry) = state.connections.get(&id) {
+                    senders.push(entry.sender.clone());
+                }
+            }
+            senders
+        };
+        let mut sent = 0;
+        for sender in senders {
+            if sender.send(Message::Text(text.clone())).is_ok() {
+                sent += 1;
             }
         }
         sent
     }
 
     pub(crate) async fn send_message(&self, connection_id: &str, message: Message) -> bool {
-        let state = self.inner.read().await;
-        if let Some(entry) = state.connections.get(connection_id) {
-            return entry.sender.send(message).is_ok();
+        let sender = {
+            let state = self.inner.read().await;
+            state.connections.get(connection_id).map(|entry| entry.sender.clone())
+        };
+        match sender {
+            Some(sender) => sender.send(message).is_ok(),
+            None => false,
         }
-        false
     }
 
     pub(crate) async fn list_connections(

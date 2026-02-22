@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 use tracing::warn;
 
 use crate::services::app::AppState;
+use crate::services::metrics::Metrics;
 use crate::services::settings::Config;
 use crate::services::utils::normalize_json;
 
@@ -200,20 +201,24 @@ impl RabbitPublisher {
     }
 
     pub(crate) async fn publish(&self, exchange: &str, routing_key: &str, payload: &Value) -> bool {
+        let body = normalize_json(payload.clone());
+        let body = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+        self.publish_raw(exchange, routing_key, body.as_bytes()).await
+    }
+
+    pub(crate) async fn publish_raw(&self, exchange: &str, routing_key: &str, body: &[u8]) -> bool {
         if exchange.is_empty() {
             return false;
         }
         let Some(channel) = self.ensure_channel().await else {
             return false;
         };
-        let body = normalize_json(payload.clone());
-        let body = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
         let confirm = channel
             .basic_publish(
                 exchange,
                 routing_key,
                 BasicPublishOptions::default(),
-                body.as_bytes(),
+                body,
                 BasicProperties::default(),
             )
             .await;
@@ -287,7 +292,14 @@ pub(crate) async fn redis_outbox_consumer(state: Arc<AppState>) {
                                                 })
                                                 .unwrap_or_default();
                                             let payload = value.get("payload").cloned().unwrap_or(Value::Null);
-                                            let _ = state.connections.send_to_subjects(&subjects, &payload).await;
+                                            let sent =
+                                                state.connections.send_to_subjects(&subjects, &payload).await;
+                                            if sent > 0 {
+                                                Metrics::inc(
+                                                    &state.metrics.ws_messages_out_total,
+                                                    sent as u64,
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -428,7 +440,14 @@ pub(crate) async fn rabbit_outbox_consumer(state: Arc<AppState>) {
                                     })
                                     .unwrap_or_default();
                                 let payload = value.get("payload").cloned().unwrap_or(Value::Null);
-                                let _ = state.connections.send_to_subjects(&subjects, &payload).await;
+                                let sent =
+                                    state.connections.send_to_subjects(&subjects, &payload).await;
+                                if sent > 0 {
+                                    Metrics::inc(
+                                        &state.metrics.ws_messages_out_total,
+                                        sent as u64,
+                                    );
+                                }
                             } else {
                                 push_rabbit_dlq(&channel, &state.config, "parse_error", &raw).await;
                             }

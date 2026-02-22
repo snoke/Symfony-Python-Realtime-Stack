@@ -11,7 +11,7 @@ use crate::services::settings::Config;
 use crate::services::utils::{normalize_json, value_to_string};
 
 pub(crate) async fn publish_message_event(
-    state: std::sync::Arc<AppState>,
+    state: &AppState,
     conn: &ConnectionInfo,
     data: &Value,
     raw: &str,
@@ -61,7 +61,7 @@ pub(crate) async fn publish_message_event(
 }
 
 pub(crate) async fn publish_connection_event(
-    state: std::sync::Arc<AppState>,
+    state: &AppState,
     event_type: &str,
     conn: &ConnectionInfo,
 ) {
@@ -90,7 +90,7 @@ pub(crate) async fn publish_connection_event(
 }
 
 async fn publish_event(
-    state: std::sync::Arc<AppState>,
+    state: &AppState,
     event_type: &str,
     stream: &str,
     exchange: &str,
@@ -102,11 +102,20 @@ async fn publish_event(
         .ordering
         .apply_partition(&state.config, stream, routing_key, ordering_key);
 
+    let mut encoded_cache: Option<String> = None;
+    let mut ensure_encoded = |cache: &mut Option<String>| {
+        if cache.is_none() {
+            let body = normalize_json(payload.clone());
+            let encoded = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+            *cache = Some(encoded);
+        }
+    };
+
     if state.config.events_mode_broker() {
         if let Some(client) = &state.redis {
             if !stream.is_empty() {
-                let body = normalize_json(payload.clone());
-                let encoded = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_string());
+                ensure_encoded(&mut encoded_cache);
+                let encoded = encoded_cache.as_deref().unwrap_or("{}");
                 if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
                     let result: redis::RedisResult<()> = redis::cmd("XADD")
                         .arg(&stream)
@@ -122,7 +131,9 @@ async fn publish_event(
             }
         }
         if let Some(rabbit) = &state.rabbit {
-            if rabbit.publish(exchange, routing_key.as_str(), payload).await {
+            ensure_encoded(&mut encoded_cache);
+            let encoded = encoded_cache.as_deref().unwrap_or("{}");
+            if rabbit.publish_raw(exchange, routing_key.as_str(), encoded.as_bytes()).await {
                 Metrics::inc(&state.metrics.broker_publish_total, 1);
             }
         }
@@ -130,8 +141,8 @@ async fn publish_event(
 
     if state.config.events_mode_webhook() {
         if !state.config.symfony_webhook_url.is_empty() {
-            let payload = normalize_json(payload.clone());
-            let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+            ensure_encoded(&mut encoded_cache);
+            let body = encoded_cache.clone().unwrap_or_else(|| "{}".to_string());
             let mut headers = reqwest::header::HeaderMap::new();
             if let Some(traceparent) = payload.get("traceparent").and_then(|v| v.as_str()) {
                 if let Ok(value) = reqwest::header::HeaderValue::from_str(traceparent) {

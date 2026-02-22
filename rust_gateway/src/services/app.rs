@@ -31,6 +31,12 @@ use crate::services::replay::{
 use crate::services::settings::Config;
 use crate::services::utils::{unix_timestamp, value_to_string};
 
+const SIMPLE_PING: &str = r#"{"type":"ping"}"#;
+const SIMPLE_HEARTBEAT: &str = r#"{"type":"heartbeat"}"#;
+const PONG_MESSAGE: &str = r#"{"type":"pong"}"#;
+const HEARTBEAT_ACK_MESSAGE: &str = r#"{"type":"heartbeat_ack"}"#;
+const RATE_LIMITED_MESSAGE: &str = r#"{"type":"rate_limited"}"#;
+
 pub(crate) struct AppState {
     pub(crate) config: Config,
     pub(crate) metrics: Metrics,
@@ -81,6 +87,7 @@ impl AppState {
     }
 
     pub(crate) fn start_background_tasks(self: &Arc<Self>) {
+        self.presence.start_worker();
         if self.redis.is_some() {
             let state = Arc::clone(self);
             tokio::spawn(async move {
@@ -160,6 +167,37 @@ fn extract_token(headers: &HeaderMap, params: &HashMap<String, String>) -> Optio
     None
 }
 
+fn is_exact_json(text: &str, expected: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.len() == expected.len() && trimmed == expected
+}
+
+async fn handle_control_message(
+    state: &Arc<AppState>,
+    conn_info: &ConnectionInfo,
+    connection_id: &str,
+    msg_type: &str,
+) {
+    if state.config.presence_enabled()
+        && (state.config.presence_strategy == "ttl" || state.config.presence_strategy == "heartbeat")
+        && (msg_type == "heartbeat" || state.config.presence_refresh_on_message)
+    {
+        state.presence.refresh(conn_info).await;
+    }
+    let reply = if msg_type == "ping" {
+        PONG_MESSAGE
+    } else {
+        HEARTBEAT_ACK_MESSAGE
+    };
+    let sent = state
+        .connections
+        .send_message(connection_id, Message::Text(reply.to_string()))
+        .await;
+    if sent {
+        Metrics::inc(&state.metrics.ws_messages_out_total, 1);
+    }
+}
+
 async fn handle_socket(
     socket: WebSocket,
     state: Arc<AppState>,
@@ -218,7 +256,7 @@ async fn handle_socket(
         });
     }
 
-    publish_connection_event(Arc::clone(&state), "connected", &conn_info).await;
+    publish_connection_event(state.as_ref(), "connected", &conn_info).await;
 
     let send_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
@@ -234,42 +272,34 @@ async fn handle_socket(
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             Message::Text(text) => {
+                if is_exact_json(&text, SIMPLE_PING) {
+                    handle_control_message(&state, &conn_info, &connection_id, "ping").await;
+                    continue;
+                }
+                if is_exact_json(&text, SIMPLE_HEARTBEAT) {
+                    handle_control_message(&state, &conn_info, &connection_id, "heartbeat").await;
+                    continue;
+                }
                 let data = serde_json::from_str::<Value>(&text)
                     .unwrap_or_else(|_| json!({"type": "raw", "payload": text}));
                 let msg_type = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if matches!(msg_type, "ping" | "heartbeat") {
-                    if state.config.presence_enabled()
-                        && (state.config.presence_strategy == "ttl"
-                            || state.config.presence_strategy == "heartbeat")
-                        && (msg_type == "heartbeat" || state.config.presence_refresh_on_message)
-                    {
-                        let presence = state.presence.clone();
-                        let info_clone = conn_info.clone();
-                        tokio::spawn(async move {
-                            presence.refresh(&info_clone).await;
-                        });
-                    }
-                    let reply = if msg_type == "ping" {
-                        json!({"type": "pong"})
-                    } else {
-                        json!({"type": "heartbeat_ack"})
-                    };
-                    let _ = state
-                        .connections
-                        .send_message(&connection_id, Message::Text(reply.to_string()))
-                        .await;
+                    handle_control_message(&state, &conn_info, &connection_id, msg_type).await;
                     continue;
                 }
 
                 if !rate_limiter.allow() {
                     Metrics::inc(&state.metrics.ws_rate_limited_total, 1);
-                    let _ = state
+                    let sent = state
                         .connections
                         .send_message(
                             &connection_id,
-                            Message::Text(json!({"type": "rate_limited"}).to_string()),
+                            Message::Text(RATE_LIMITED_MESSAGE.to_string()),
                         )
                         .await;
+                    if sent {
+                        Metrics::inc(&state.metrics.ws_messages_out_total, 1);
+                    }
                     continue;
                 }
 
@@ -279,13 +309,9 @@ async fn handle_socket(
                     && (state.config.presence_strategy == "ttl"
                         || state.config.presence_strategy == "heartbeat")
                 {
-                    let presence = state.presence.clone();
-                    let info_clone = conn_info.clone();
-                    tokio::spawn(async move {
-                        presence.refresh(&info_clone).await;
-                    });
+                    state.presence.refresh(&conn_info).await;
                 }
-                publish_message_event(Arc::clone(&state), &conn_info, &data, &text).await;
+                publish_message_event(state.as_ref(), &conn_info, &data, &text).await;
             }
             Message::Close(_) => break,
             _ => {}
@@ -307,7 +333,7 @@ async fn handle_socket(
             presence.remove(&info_clone).await;
         });
     }
-    publish_connection_event(Arc::clone(&state), "disconnected", &conn_info).await;
+    publish_connection_event(state.as_ref(), "disconnected", &conn_info).await;
 }
 
 async fn close_ws(mut socket: WebSocket, reason: &str) {
@@ -338,6 +364,9 @@ async fn publish_handler(
     let subjects = payload.subjects.unwrap_or_default();
     let message = payload.payload.unwrap_or(Value::Null);
     let sent = state.connections.send_to_subjects(&subjects, &message).await;
+    if sent > 0 {
+        Metrics::inc(&state.metrics.ws_messages_out_total, sent as u64);
+    }
     Metrics::inc(&state.metrics.publish_total, 1);
     let _traceparent = headers.get("traceparent");
     (axum::http::StatusCode::OK, Json(json!({"sent": sent}))).into_response()
@@ -590,7 +619,10 @@ fn extract_api_key(headers: &HeaderMap, payload: &Value) -> String {
 }
 
 async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    state.metrics.to_prometheus()
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        state.metrics.to_prometheus(state.config.ws_mode.as_str()),
+    )
 }
 
 async fn health_handler() -> impl IntoResponse {

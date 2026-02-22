@@ -24,6 +24,8 @@ pub(crate) struct Config {
     pub(crate) presence_heartbeat_seconds: i64,
     pub(crate) presence_grace_seconds: i64,
     pub(crate) presence_refresh_on_message: bool,
+    pub(crate) presence_refresh_min_interval_seconds: i64,
+    pub(crate) presence_refresh_queue_size: usize,
     pub(crate) webhook_retry_attempts: u32,
     pub(crate) webhook_retry_base_seconds: f64,
     pub(crate) webhook_timeout_seconds: f64,
@@ -109,6 +111,9 @@ impl Config {
         let presence_heartbeat_seconds = env_i64("PRESENCE_HEARTBEAT_SECONDS", 30);
         let presence_grace_seconds = env_i64("PRESENCE_GRACE_SECONDS", 15);
         let presence_refresh_on_message = env_bool("PRESENCE_REFRESH_ON_MESSAGE", true);
+        let presence_refresh_min_interval_seconds =
+            env_i64("PRESENCE_REFRESH_MIN_INTERVAL_SECONDS", 0);
+        let presence_refresh_queue_size = env_usize("PRESENCE_REFRESH_QUEUE_SIZE", 1024);
         let webhook_retry_attempts = env_u32("WEBHOOK_RETRY_ATTEMPTS", 3);
         let webhook_retry_base_seconds = env_f64("WEBHOOK_RETRY_BASE_SECONDS", 0.5);
         let webhook_timeout_seconds = env_f64("WEBHOOK_TIMEOUT_SECONDS", 5.0);
@@ -207,6 +212,8 @@ impl Config {
             presence_heartbeat_seconds,
             presence_grace_seconds,
             presence_refresh_on_message,
+            presence_refresh_min_interval_seconds,
+            presence_refresh_queue_size,
             webhook_retry_attempts,
             webhook_retry_base_seconds,
             webhook_timeout_seconds,
