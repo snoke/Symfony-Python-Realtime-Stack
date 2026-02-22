@@ -101,8 +101,10 @@ class BrokerService:
         exchange: Optional[aio_pika.Exchange],
         routing_key: str,
         payload: Dict[str, Any],
+        body: Optional[str] = None,
     ) -> None:
-        body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        if body is None:
+            body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
         if self.redis_publish_client and stream:
             try:
                 kwargs: Dict[str, Any] = {}
