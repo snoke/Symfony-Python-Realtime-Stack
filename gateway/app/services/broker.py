@@ -9,6 +9,7 @@ from aio_pika import ExchangeType
 from opentelemetry.trace import SpanKind
 
 from .logging_service import LoggingService
+from .message import internal_from_dict
 from .metrics import MetricsService
 from .settings import Settings
 from .tracing import TracingService
@@ -37,13 +38,25 @@ class BrokerService:
     def set_sender(self, sender: Callable[[list, Any], Awaitable[int]]) -> None:
         self._send_to_subjects = sender
 
+    def _strip_internal_payload(self, payload: Any) -> Any:
+        if not self._settings.OUTBOX_STRIP_INTERNAL:
+            return payload
+        if not isinstance(payload, dict):
+            return payload
+        internal = internal_from_dict(payload)
+        if not internal:
+            return payload
+        return internal.to_client_payload()
+
     async def startup(self) -> None:
         if self._settings.REDIS_DSN:
             self.redis_publish_client = redis.from_url(self._settings.REDIS_DSN, decode_responses=True)
-            asyncio.create_task(self._redis_outbox_consumer())
+            if self._settings.ROLE_READ:
+                asyncio.create_task(self._redis_outbox_consumer())
         if self._settings.RABBITMQ_DSN:
             asyncio.create_task(self._init_rabbitmq())
-            asyncio.create_task(self._rabbit_outbox_consumer())
+            if self._settings.ROLE_READ:
+                asyncio.create_task(self._rabbit_outbox_consumer())
 
     async def shutdown(self) -> None:
         if self.rabbit_publish_connection:
@@ -143,7 +156,7 @@ class BrokerService:
                         try:
                             data = json.loads(raw)
                             subjects = data.get("subjects", [])
-                            payload = data.get("payload")
+                            payload = self._strip_internal_payload(data.get("payload"))
                             traceparent = data.get("traceparent") or ""
                             span_ctx = self._tracing.extract_context(traceparent) if traceparent else None
                             if self._tracing.enabled and self._tracing.should_record(bool(traceparent)):
@@ -191,7 +204,7 @@ class BrokerService:
                                 try:
                                     data = json.loads(message.body.decode("utf-8"))
                                     subjects = data.get("subjects", [])
-                                    payload = data.get("payload")
+                                    payload = self._strip_internal_payload(data.get("payload"))
                                     traceparent = data.get("traceparent") or ""
                                     span_ctx = self._tracing.extract_context(traceparent) if traceparent else None
                                     if self._tracing.enabled and self._tracing.should_record(bool(traceparent)):

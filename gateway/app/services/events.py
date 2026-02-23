@@ -6,6 +6,7 @@ from opentelemetry.trace import SpanKind
 
 from .broker import BrokerService
 from .logging_service import LoggingService
+from .message import InternalMessage
 from .metrics import MetricsService
 from .ordering import OrderingService
 from .settings import Settings
@@ -71,16 +72,24 @@ class EventPublisher:
             else:
                 await self._webhook.post(event_type, payload, body=ensure_body())
 
-    async def publish_message_event(self, conn, data: Dict[str, Any], raw: str) -> None:
+    async def publish_message_event(self, conn, data: Dict[str, Any], raw: str, internal: InternalMessage) -> None:
         traceparent = self._tracing.extract_traceparent(data) or conn.traceparent
         incoming_trace_id = self._tracing.extract_trace_id(data)
         has_parent = bool(traceparent or incoming_trace_id)
         span_ctx = self._tracing.extract_context(traceparent) if traceparent else None
         ordering_key = self._ordering.derive_ordering_key(conn, data)
+        if self._settings.CHANNEL_ROUTING_STRATEGY == "channel_id" and internal.channel_id:
+            ordering_key = internal.channel_id
         payload = {
             "type": "message_received",
+            "schema_version": internal.schema_version,
+            "internal_id": internal.internal_id,
+            "timestamp_ms": internal.timestamp_ms,
+            "user_id": internal.user_id,
+            "channel_id": internal.channel_id,
+            "flags": internal.flags.to_dict(),
+            "payload": internal.payload,
             "connection_id": conn.id,
-            "user_id": conn.user_id,
             "subjects": list(conn.subjects),
             "connected_at": conn.connected_at,
             "message": data,
@@ -92,7 +101,11 @@ class EventPublisher:
             payload[self._settings.TRACING_TRACE_ID_FIELD] = incoming_trace_id
         if ordering_key:
             payload["ordering_key"] = ordering_key
-            payload["ordering_strategy"] = self._settings.ORDERING_STRATEGY
+            payload["ordering_strategy"] = (
+                self._settings.CHANNEL_ROUTING_STRATEGY
+                if self._settings.CHANNEL_ROUTING_STRATEGY == "channel_id"
+                else self._settings.ORDERING_STRATEGY
+            )
 
         if self._tracing.enabled and self._tracing.should_record(has_parent):
             with self._tracing.tracer.start_as_current_span(
