@@ -40,10 +40,12 @@ class BrokerService:
     async def startup(self) -> None:
         if self._settings.REDIS_DSN:
             self.redis_publish_client = redis.from_url(self._settings.REDIS_DSN, decode_responses=True)
-            asyncio.create_task(self._redis_outbox_consumer())
+            if self._settings.ROLE_READ:
+                asyncio.create_task(self._redis_outbox_consumer())
         if self._settings.RABBITMQ_DSN:
             asyncio.create_task(self._init_rabbitmq())
-            asyncio.create_task(self._rabbit_outbox_consumer())
+            if self._settings.ROLE_READ:
+                asyncio.create_task(self._rabbit_outbox_consumer())
 
     async def shutdown(self) -> None:
         if self.rabbit_publish_connection:

@@ -26,6 +26,7 @@ SIMPLE_HEARTBEAT = '{"type":"heartbeat"}'
 PONG_MESSAGE = '{"type":"pong"}'
 HEARTBEAT_ACK_MESSAGE = '{"type":"heartbeat_ack"}'
 RATE_LIMITED_MESSAGE = '{"type":"rate_limited"}'
+READ_ONLY_MESSAGE = '{"type":"read_only"}'
 
 
 def _is_exact_json(message: str, expected: str) -> bool:
@@ -136,6 +137,9 @@ class GatewayApp:
                     self._logger.log("ws_rate_limited", connection_id=conn.id, user_id=conn.user_id)
                     continue
                 self._metrics.inc("ws_messages_total")
+                if not self._settings.ROLE_WRITE:
+                    await websocket.send_text(READ_ONLY_MESSAGE)
+                    continue
                 if self._settings.PRESENCE_STRATEGY in ("ttl", "heartbeat") and self._settings.PRESENCE_REFRESH_ON_MESSAGE:
                     self._presence.refresh(conn)
                 if self._settings.BACKPRESSURE_STRATEGY == "none":
@@ -220,6 +224,8 @@ class GatewayApp:
         conn.buffer_event.set()
 
     async def publish(self, payload: Dict[str, Any], request: Request):
+        if not self._settings.ROLE_READ:
+            raise HTTPException(status_code=403, detail="read role required")
         api_key = payload.get("api_key") or ""
         if self._settings.GATEWAY_API_KEY and api_key != self._settings.GATEWAY_API_KEY:
             raise HTTPException(status_code=401, detail="invalid api key")
@@ -239,6 +245,8 @@ class GatewayApp:
         return JSONResponse({"sent": sent})
 
     async def replay_rabbitmq(self, payload: Dict[str, Any], request: Request):
+        if not self._settings.ROLE_WRITE:
+            raise HTTPException(status_code=403, detail="write role required")
         result = await self._replay.handle(payload, request)
         return JSONResponse(result)
 
