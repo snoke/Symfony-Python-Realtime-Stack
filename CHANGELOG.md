@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-02-28
+### Added
+- Gateway submodules (`gateway/gateway-python`, `gateway/gateway-rust`) with compose overlays for local builds.
+
+### Changed
+- `docker-compose.yaml` now contains shared gateway settings only; build is supplied by the selected gateway compose file.
+- Quick Start updated to explicitly select Python or Rust gateway and to use submodules.
+- Repo references updated to `Symfony-Realtime-Stack`.
+
+### Removed
+- Standalone gateway compose downloads (`docker-compose.ws-gateway.core.yaml`, `docker-compose.ws-gateway.terminator.yaml`).
+- Legacy `docker-compose.rust-gateway.yaml` override file.
+
 ## [0.1.2] - 2026-02-23
 ### Added
 - MIT License file.
